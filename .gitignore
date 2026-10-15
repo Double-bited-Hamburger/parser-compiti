@@ -1,0 +1,31 @@
+# Dati personali: credenziali, registri scaricati, spunte
+.env
+cache/
+output/
+profili/
+stato.json
+credenziali.json
+prova/
+*.log
+config_locale.py
+
+# Python
+__pycache__/
+
+# Android: build e chiave di firma (non va mai pubblicata)
+android/.gradle/
+android/.kotlin/
+android/build/
+android/app/build/
+android/local.properties
+android/keystore.properties
+keystore.properties
+*.jks
+*.keystore
+*.apk
+*.aab
+
+# Impostazioni locali degli strumenti di sviluppo
+.claude/
+.vscode/
+.idea/

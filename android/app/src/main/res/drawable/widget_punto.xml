@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Il puntino rosso dei widget: «qui c'è qualcosa di vivo». -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
+    <solid android:color="@color/widget_rosso" />
+    <size android:width="7dp" android:height="7dp" />
+</shape>

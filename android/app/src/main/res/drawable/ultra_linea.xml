@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- La lineetta azzurra del tema Ultra, come l'azzurro sulla lattina. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <solid android:color="@color/ultra_azzurro" />
+    <corners android:radius="1dp" />
+    <size android:width="34dp" android:height="2dp" />
+</shape>

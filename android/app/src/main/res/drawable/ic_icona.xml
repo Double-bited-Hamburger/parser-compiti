@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Un foglio del registro con tre righe, la prima spuntata. Sta nella zona sicura centrale dell'icona adattiva. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M37,30h34a5,5 0,0 1,5 5v38a5,5 0,0 1,-5 5H37a5,5 0,0 1,-5 -5V35a5,5 0,0 1,5 -5z" />
+    <path
+        android:fillColor="#00000000"
+        android:strokeColor="#2A78D6"
+        android:strokeLineCap="round"
+        android:strokeLineJoin="round"
+        android:strokeWidth="4"
+        android:pathData="M40,43l4,4l7,-8M57,43h12M41,56h28M41,67h20" />
+</vector>

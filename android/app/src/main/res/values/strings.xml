@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="nome_app">Registro</string>
+    <string name="preparo_pdf">Preparo il PDF…</string>
+    <string name="pdf_non_riuscito">Non sono riuscito a creare il PDF.</string>
+    <string name="nessuna_app">Nessuna app installata per aprirlo.</string>
+
+    <string name="canale_novita">Novità dal registro</string>
+    <string name="canale_novita_desc">Nuovi voti, verifiche, compiti e cambi d\'orario.</string>
+    <string name="canale_promemoria">Promemoria compiti</string>
+    <string name="canale_promemoria_desc">Nel tardo pomeriggio, i compiti per domani non ancora spuntati.</string>
+
+    <string name="widget_compiti_nome">Compiti</string>
+    <string name="widget_compiti_desc">Quanti compiti ti restano per il prossimo giorno di scuola.</string>
+    <string name="widget_compiti_titolo">Compiti · per %1$s</string>
+    <string name="widget_verifica_nome">Prossima verifica</string>
+    <string name="widget_verifica_desc">Quanti giorni mancano alla prossima verifica.</string>
+    <string name="widget_verifica_titolo">Verifica</string>
+    <string name="widget_giorni">giorni</string>
+    <string name="widget_giorno">giorno</string>
+    <string name="widget_nessuna">Nessuna</string>
+    <string name="widget_in_vista">in vista</string>
+    <string name="widget_altre">+%1$d</string>
+    <string name="widget_tutto_fatto">Tutto fatto</string>
+    <string name="widget_niente">Niente da consegnare</string>
+    <string name="widget_apri_app">Apri l\'app per scaricare i dati</string>
+    <string name="widget_numero">Numero</string>
+    <string name="widget_adesso_nome">Adesso</string>
+    <string name="widget_adesso_desc">La lezione in corso e quanto manca alla campanella.</string>
+    <string name="widget_adesso_titolo">Adesso</string>
+    <string name="widget_adesso_prossima">Prossima · %1$s</string>
+    <string name="widget_adesso_nessuna">Nessuna lezione in orario</string>
+    <string name="widget_mancano" formatted="false">-%s  </string>
+    <string name="widget_poi">poi %1$s</string>
+</resources>

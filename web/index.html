@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Registro</title>
+<script src="tema.js"></script>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main>
+  <header class="top">
+    <div>
+      <h1 id="titolo">Registro</h1>
+      <p class="sub" id="aggiornato">Caricamento…</p>
+    </div>
+    <div class="azioni">
+      <label class="scegli-tema"><span class="sr">Tema</span><select id="tema" aria-label="Tema"></select></label>
+      <button id="apri-profili" class="btn ghost" type="button" hidden>Profili</button>
+      <button id="aggiorna" class="btn" type="button" hidden>Aggiorna</button>
+    </div>
+  </header>
+
+  <div id="avviso" class="avviso" role="status" hidden></div>
+
+  <section id="profili" hidden></section>
+
+  <div id="app" hidden>
+  <nav class="tabs" role="tablist" aria-label="Sezioni">
+    <button role="tab" data-tab="oggi">Oggi</button>
+    <button role="tab" data-tab="agenda">Agenda</button>
+    <button role="tab" data-tab="compiti">Compiti</button>
+    <button role="tab" data-tab="studio">Studio</button>
+    <button role="tab" data-tab="orario">Orario</button>
+    <button role="tab" data-tab="voti">Voti</button>
+    <button role="tab" data-tab="carico">Carico di lavoro</button>
+    <button role="tab" data-tab="assenze">Assenze</button>
+  </nav>
+
+  <section id="tab-oggi" role="tabpanel" hidden></section>
+  <section id="tab-agenda" role="tabpanel" hidden></section>
+  <section id="tab-compiti" role="tabpanel" hidden></section>
+  <section id="tab-studio" role="tabpanel" hidden></section>
+  <section id="tab-orario" role="tabpanel" hidden></section>
+  <section id="tab-voti" role="tabpanel" hidden></section>
+  <section id="tab-carico" role="tabpanel" hidden></section>
+  <section id="tab-assenze" role="tabpanel" hidden></section>
+  </div>
+</main>
+<div id="tip" class="tip" hidden></div>
+<script src="punti.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

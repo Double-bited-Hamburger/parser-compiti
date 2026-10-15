@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Sfondo dei widget col tema Ultra: alluminio bianco con riflesso, ornamento barocco (ultra_ornamento_largo), graffi argentati, bordo sottile. -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <item>
+        <shape android:shape="rectangle">
+            <gradient android:angle="0" android:startColor="#FFE9ECEE" android:centerColor="#FFFFFFFF" android:endColor="#FFE4E7EA" />
+            <corners android:radius="26dp" />
+        </shape>
+    </item>
+    <item android:bottom="10dp" android:drawable="@drawable/ultra_ornamento_largo" android:left="14dp" android:right="14dp" android:top="10dp" />
+    <item android:width="52dp" android:height="62dp" android:drawable="@drawable/ultra_artiglio" android:gravity="top|end" android:right="26dp" android:top="8dp" />
+    <item>
+        <shape android:shape="rectangle">
+            <stroke android:width="1dp" android:color="@color/ultra_bordo" />
+            <corners android:radius="26dp" />
+        </shape>
+    </item>
+</layer-list>
