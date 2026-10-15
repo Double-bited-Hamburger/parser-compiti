@@ -1,0 +1,44 @@
+name: Qualcosa non funziona
+description: Un errore, un dato sbagliato, una schermata che non si apre.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Grazie della segnalazione! **Non scrivere mai password, voti, nomi di persone o della scuola**: la issue è pubblica.
+        Per un problema di sicurezza usa invece la segnalazione privata (vedi SECURITY.md).
+  - type: dropdown
+    id: dove
+    attributes:
+      label: Dove succede
+      options: ["PC (Windows)", "PC (Linux / macOS)", "App Android", "Sincronizzazione PC ↔ telefono"]
+    validations:
+      required: true
+  - type: dropdown
+    id: registro
+    attributes:
+      label: Registro
+      options: ["Argo didUP", "Nuvola", "ClasseViva", "Non dipende dal registro"]
+    validations:
+      required: true
+  - type: input
+    id: versione
+    attributes:
+      label: Versione
+      description: In fondo alla schermata «Profili», oppure `py main.py --version`.
+      placeholder: 0.1.0-beta
+  - type: textarea
+    id: cosa
+    attributes:
+      label: Cosa succede e cosa ti aspettavi
+      description: I passi per arrivarci, se li sai.
+    validations:
+      required: true
+  - type: textarea
+    id: errori
+    attributes:
+      label: Messaggio di errore (facoltativo)
+      description: |
+        Il messaggio mostrato dall'app, oppure le ultime righe di `cache/errori.log`.
+        **Rileggile prima di incollarle** e togli qualunque dato personale.
+      render: text

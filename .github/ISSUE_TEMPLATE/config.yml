@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Problema di sicurezza
+    url: https://docs.github.com/it/code-security/security-advisories/guidance-on-reporting-and-writing-information-about-vulnerabilities/privately-reporting-a-security-vulnerability
+    about: Non aprire una issue pubblica, usa la segnalazione privata (scheda Security del repository).

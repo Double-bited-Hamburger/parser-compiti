@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Gli stessi colori di web/style.css (-bg e -accent). -->
+    <color name="sfondo">#F6F7F9</color>
+    <color name="icona">#2A78D6</color>
+    <!-- Widget in stile Nothing: bianco e nero, un solo rosso. -->
+    <color name="widget_sfondo">#FFFFFF</color>
+    <color name="widget_testo">#111111</color>
+    <color name="widget_tenue">#7A7A7A</color>
+    <color name="widget_rosso">#D71921</color>
+    <!-- Widget col tema Ultra (lattina bianca): restano bianchi anche col telefono in tema scuro, come la lattina. -->
+    <color name="ultra_testo">#111111</color>
+    <color name="ultra_tenue">#636970</color>
+    <color name="ultra_azzurro">#79C3E6</color>
+    <color name="ultra_bordo">#D6DADD</color>
+</resources>

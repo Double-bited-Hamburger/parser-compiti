@@ -1,0 +1,43 @@
+name: Registro o orario della mia scuola
+description: La tua scuola usa un registro (Axios, Mastercom, …) o un orario che l'app non supporta ancora, oppure vuoi provare ClasseViva.
+labels: ["nuovo registro"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Aggiungere un registro richiede qualcuno che lo possa provare con un account vero: indicalo se sei disponibile.
+        **Non scrivere mai password, voti o nomi.**
+  - type: input
+    id: piattaforma
+    attributes:
+      label: Piattaforma
+      description: Nome del registro o del sito dell'orario, e indirizzo web.
+      placeholder: "Es. Axios (family.axioscloud.it)"
+    validations:
+      required: true
+  - type: dropdown
+    id: tipo
+    attributes:
+      label: Che cosa
+      options: ["Registro elettronico", "Orario della classe", "Tutti e due"]
+    validations:
+      required: true
+  - type: input
+    id: zona
+    attributes:
+      label: Regione o provincia (facoltativo)
+      description: Aiuta a capire quanto è diffuso. Non serve il nome della scuola.
+  - type: checkboxes
+    id: prove
+    attributes:
+      label: Prove
+      options:
+        - label: Ho un account e posso provare una versione di prova
+  - type: textarea
+    id: struttura
+    attributes:
+      label: Struttura dei dati (facoltativo, per ClasseViva)
+      description: |
+        Lancia `py main.py --dump` e incolla l'output: contiene **solo** nomi dei campi e tipi, nessun contenuto.
+        Rileggilo comunque prima di incollarlo.
+      render: text

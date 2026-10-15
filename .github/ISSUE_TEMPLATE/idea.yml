@@ -1,0 +1,16 @@
+name: Idea o suggerimento
+description: Una funzione nuova, una scheda da migliorare, un dubbio sull'uso.
+labels: ["idea"]
+body:
+  - type: textarea
+    id: idea
+    attributes:
+      label: L'idea
+      description: Che cosa vorresti e a cosa ti servirebbe.
+    validations:
+      required: true
+  - type: dropdown
+    id: dove
+    attributes:
+      label: Dove
+      options: ["PC", "App Android", "Tutti e due"]

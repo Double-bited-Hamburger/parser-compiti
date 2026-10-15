@@ -1,0 +1,1319 @@
+"use strict";
+
+const $ = (sel, root = document) => root.querySelector(sel);
+const GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "venerdì", "sabato"];
+const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
+const MESI_LUNGHI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
+const MINUTI_VALIDITA = 30; // oltre questa età i dati vengono riscaricati all'apertura
+const SCHEDE = ["oggi", "agenda", "compiti", "studio", "orario", "voti", "carico", "assenze"];
+
+let D = null; // dati elaborati dal server
+let fatti = new Set(); // id dei compiti spuntati (e dei passi del piano di studio, che iniziano con «studio-»)
+let scheda = "oggi";
+let ricerca = ""; // testo cercato nella scheda Compiti
+let nascondiFatti = false;
+let settimanaOrario = 0;
+let materiaGrafico = "";
+let simMateria = "";
+let simulati = []; // voti ipotetici: {materia, voto}
+
+/* ---------- utilità ---------- */
+
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+const giorno = (iso) => { const [y, m, d] = iso.slice(0, 10).split("-").map(Number); return new Date(y, m - 1, d); };
+const giorniDa = (iso) => Math.round((giorno(iso) - giorno(D.oggi)) / 864e5);
+const num = (v) => (v == null ? "–" : v.toLocaleString("it-IT", { maximumFractionDigits: 2 }));
+const media = (v) => (v == null ? "–" : v.toLocaleString("it-IT", { minimumFractionDigits: 2, maximumFractionDigits: 2 }));
+const dataBreve = (iso) => { const d = giorno(iso); return `${d.getDate()} ${MESI[d.getMonth()]}`; };
+const dataLunga = (iso) => { const d = giorno(iso); return `${GIORNI[d.getDay()]} ${d.getDate()} ${MESI[d.getMonth()]}`; };
+const mese = (ym) => { const [y, m] = ym.split("-").map(Number); return `${MESI[m - 1]} ${y}`; };
+const plurale = (n, uno, molti) => `${n} ${n === 1 ? uno : molti}`;
+const tip = (html) => `data-tip="${esc(html)}"`;
+const arrotondaSu = (v) => Math.ceil(v * 4 - 1e-9) / 4;
+const isoDi = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+const spostaGiorni = (iso, n) => { const d = giorno(iso); d.setDate(d.getDate() + n); return isoDi(d); };
+const dataCompleta = (iso) => { const d = giorno(iso); return `${GIORNI[d.getDay()]} ${d.getDate()} ${MESI_LUNGHI[d.getMonth()]} ${d.getFullYear()}`; };
+const oraDi = (d) => `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+const minuti = (hhmm) => { const [h, m] = hhmm.split(":").map(Number); return h * 60 + m; };
+// Per cercare senza badare a maiuscole e accenti: «perché» si trova anche scrivendo «perche».
+const piega = (s) => String(s ?? "").normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
+function quando(iso) {
+  const n = giorniDa(iso);
+  if (n === 0) return "oggi";
+  if (n === 1) return "domani";
+  if (n === -1) return "ieri";
+  return n > 0 ? `tra ${n} giorni` : `${-n} giorni fa`;
+}
+
+async function api(percorso, corpo) {
+  const opzioni = corpo === undefined ? {} : {
+    method: "POST",
+    headers: { "Content-Type": "application/json", "X-Parser-Compiti": "1" },
+    body: JSON.stringify(corpo),
+  };
+  const risposta = await fetch(percorso, opzioni);
+  const json = await risposta.json();
+  if (!risposta.ok) throw new Error(json.errore || "Errore imprevisto.");
+  return json;
+}
+
+let titoloAttuale = ["Registro", ""];
+// Il titolo in alto: col tema «Nothing» la prima parte è a punti e il resto (il nome) va a capo in piccolo.
+function impostaTitolo(testo, resto = "") {
+  titoloAttuale = [testo, resto];
+  const sotto = resto ? `<span class="titolo-resto">${esc(resto)}</span>` : "";
+  if (temaNothing()) $("#titolo").innerHTML = aPunti(testo, 3.4) + sotto;
+  // Col tema «Ultra» il titolo è composto come il fronte della lattina: riga in alto tra due trattini, nome grande e graffiato, parola azzurra spaziata, «Ultra».
+  else if (temaUltra()) $("#titolo").innerHTML = `<span class="ultra-zero" id="ultra-zero">${esc(sloganUltra())}</span>
+    <span class="wordmark">${esc(testo === "Registro" ? "REGISTRØ" : testo)}</span><span class="ultra-azzurro">Scuola</span><span class="ultra-nome">Ultra</span>${sotto}`;
+  else $("#titolo").textContent = resto ? `${testo} ${resto}` : testo;
+}
+
+const temaUltra = () => document.documentElement.dataset.tema === "ultra";
+// La riga in alto del tema «Ultra», al posto dello «zero zuccheri»: i compiti scaduti non spuntati.
+function sloganUltra() {
+  if (!D || D.vuoto) return "Zero stress";
+  const n = D.compiti.filter((c) => giorniDa(c.consegna) < 0 && !fatti.has(c.id)).length;
+  return n ? `${n} ${n === 1 ? "arretrato" : "arretrati"}` : "Zero arretrati";
+}
+
+function avviso(testo, errore = false) {
+  const el = $("#avviso");
+  el.hidden = !testo;
+  el.textContent = testo || "";
+  el.classList.toggle("errore", errore);
+}
+
+/* ---------- grafici ---------- */
+
+// Grafico a colonne (anche impilate). cats: [{label, valori: [n…], tip}], serie: [colore CSS…]
+function colonne(w, cats, serie, opt = {}) {
+  const h = opt.h || 190, m = { t: 18, r: 8, b: 26, l: 26 };
+  const totali = cats.map((c) => c.valori.reduce((a, b) => a + b, 0));
+  const max = Math.max(1, ...totali);
+  const passo = max <= 5 ? 1 : max <= 10 ? 2 : max <= 25 ? 5 : Math.ceil(max / 4 / 5) * 5;
+  const cima = Math.ceil(max / passo) * passo;
+  const pw = w - m.l - m.r, ph = h - m.t - m.b, banda = pw / cats.length;
+  const lb = Math.min(24, Math.max(3, banda - 6));
+  const y = (v) => m.t + ph - (v / cima) * ph;
+  const ogni = Math.max(1, Math.ceil(cats.length / Math.max(1, Math.floor(pw / 48))));
+  let s = "";
+  for (let v = 0; v <= cima; v += passo) {
+    s += `<line class="${v ? "grid" : "axis"}" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/>`;
+    s += `<text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  }
+  cats.forEach((c, i) => {
+    const x = m.l + banda * i + (banda - lb) / 2;
+    const ultimo = c.valori.reduce((u, v, j) => (v > 0 ? j : u), -1);
+    let base = 0;
+    c.valori.forEach((v, j) => {
+      if (v <= 0) return;
+      const yb = y(base) - (base > 0 ? 2 : 0), yt = y(base + v), alt = Math.max(1, yb - yt);
+      if (j === ultimo) {
+        const r = Math.min(4, alt / 2, lb / 2);
+        s += `<path fill="${serie[j]}" d="M${x},${yb}V${yt + r}Q${x},${yt} ${x + r},${yt}H${x + lb - r}Q${x + lb},${yt} ${x + lb},${yt + r}V${yb}Z"/>`;
+      } else {
+        s += `<rect fill="${serie[j]}" x="${x}" y="${yt}" width="${lb}" height="${alt}"/>`;
+      }
+      base += v;
+    });
+    if (totali[i] > 0 && cats.length <= 16) s += `<text class="val" x="${x + lb / 2}" y="${y(totali[i]) - 5}" text-anchor="middle">${totali[i]}</text>`;
+    if (i % ogni === 0) s += `<text x="${m.l + banda * (i + 0.5)}" y="${h - 8}" text-anchor="middle"${c.evid ? ' class="val"' : ""}>${esc(c.label)}</text>`;
+    s += `<rect class="hit" x="${m.l + banda * i}" y="${m.t}" width="${banda}" height="${ph}" ${tip(c.tip)}/>`;
+  });
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" height="${h}" role="img" aria-label="${esc(opt.titolo || "")}">${s}</svg>`;
+}
+
+// Voti nel tempo. punti: [{t: Date, y, tip}], linea: [{t, y}] (se assente unisce i punti)
+function andamento(w, punti, linea) {
+  const h = 220, m = { t: 12, r: 16, b: 26, l: 26 };
+  const pw = w - m.l - m.r, ph = h - m.t - m.b;
+  const tempi = punti.map((p) => +p.t), t0 = Math.min(...tempi), t1 = Math.max(...tempi);
+  const x = (t) => (t1 === t0 ? m.l + pw / 2 : m.l + ((t - t0) / (t1 - t0)) * pw);
+  const y = (v) => m.t + ph - ((v - 1) / 9) * ph; // scala dei voti: da 1 a 10
+  let s = "";
+  for (let v = 2; v <= 10; v += 2) {
+    s += `<line class="grid" x1="${m.l}" x2="${w - m.r}" y1="${y(v)}" y2="${y(v)}"/><text x="${m.l - 6}" y="${y(v) + 4}" text-anchor="end">${v}</text>`;
+  }
+  s += `<line class="ref" x1="${m.l}" x2="${w - m.r}" y1="${y(D.sufficienza)}" y2="${y(D.sufficienza)}"/>`;
+  s += `<line class="axis" x1="${m.l}" x2="${w - m.r}" y1="${m.t + ph}" y2="${m.t + ph}"/>`;
+  const tacche = t1 === t0 ? [t0] : (pw >= 360 ? [0, 0.25, 0.5, 0.75, 1] : [0, 0.5, 1]).map((f) => t0 + f * (t1 - t0));
+  let precedente = "";
+  tacche.forEach((t, i) => {
+    const d = new Date(t), ancora = t1 === t0 ? "middle" : i === 0 ? "start" : i === tacche.length - 1 ? "end" : "middle";
+    const testo = `${d.getDate()} ${MESI[d.getMonth()]}`;
+    if (testo !== precedente) s += `<text x="${x(t)}" y="${h - 8}" text-anchor="${ancora}">${testo}</text>`;
+    precedente = testo;
+  });
+  const tratto = linea || punti;
+  if (tratto.length > 1) s += `<path fill="none" stroke="var(--series-1)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round" d="${tratto.map((p, i) => `${i ? "L" : "M"}${x(+p.t)},${y(p.y)}`).join("")}"/>`;
+  punti.forEach((p) => { s += `<circle class="pt" cx="${x(+p.t)}" cy="${y(p.y)}" r="5" fill="var(--series-1)"/>`; });
+  punti.forEach((p) => { s += `<circle class="hit" cx="${x(+p.t)}" cy="${y(p.y)}" r="12" ${tip(p.tip)}/>`; });
+  return `<svg class="chart" viewBox="0 0 ${w} ${h}" height="${h}" role="img" aria-label="Andamento dei voti nel tempo">${s}</svg>`;
+}
+
+// Barre orizzontali in HTML. righe: [{label, segmenti: [{v, colore}], val, tip}]
+function barre(righe, max, rif) {
+  if (!righe.length) return '<p class="muted">Ancora nessun dato.</p>';
+  return `<div class="hbar">${righe.map((r) => `
+    <div class="lab" title="${esc(r.label)}">${esc(r.label)}</div>
+    <div class="trk" ${tip(r.tip)}>${r.segmenti.filter((g) => g.v > 0).map((g) => `<i style="width:${(g.v / max) * 100}%;background:${g.colore}"></i>`).join("")}${rif ? `<i class="rif" style="left:${(rif / max) * 100}%"></i>` : ""}</div>
+    <div class="val">${r.val}</div>`).join("")}</div>`;
+}
+
+const legenda = (voci) => `<div class="legend">${voci.map(([nome, colore]) => `<span><i style="background:${colore}"></i>${nome}</span>`).join("")}</div>`;
+const grafico = (titolo, sotto, corpo) => `<div class="box pad"><p class="chart-title">${titolo}</p><p class="chart-sub">${sotto}</p>${corpo}</div>`;
+
+// I grafici SVG hanno bisogno della larghezza reale: vengono disegnati dopo aver inserito l'HTML.
+let daDisegnare = [];
+const segnaposto = (fn) => { daDisegnare.push(fn); return `<div data-svg="${daDisegnare.length - 1}"></div>`; };
+function disegna(radice) {
+  radice.querySelectorAll("[data-svg]").forEach((el) => { el.innerHTML = daDisegnare[+el.dataset.svg](Math.max(260, el.clientWidth)); });
+}
+
+/* ---------- pezzi condivisi ---------- */
+
+const lezioniOrario = () => (D.orario ? D.orario.lezioni : []);
+
+// Dettagli di una variazione d'orario: «al posto di …» e la nota di WebUntis.
+function dettagliVariazione(l) {
+  const previsto = [...l.docenti_previsti, ...l.aule_previste].join(", ");
+  return [previsto ? `al posto di ${esc(previsto)}` : "", esc(l.nota)].filter(Boolean).join(" · ");
+}
+
+// L'aula in cui si svolge un promemoria, se a quell'ora c'è una lezione in orario.
+function aulaPromemoria(p) {
+  const inizio = (p.orario || "").slice(0, 5);
+  const lezioni = lezioniOrario().filter((l) => l.data === p.data && l.inizio === inizio && l.stato !== "annullata");
+  const aule = [...new Set(lezioni.flatMap((l) => l.aule))];
+  return aule.length ? `Aula ${aule.join(", ")}` : ""; // testo semplice: chi lo mette in pagina lo passa da esc
+}
+
+function tabellaPromemoria(lista) {
+  if (!lista.length) return '<div class="box"><div class="empty">Niente in programma.</div></div>';
+  const righe = lista.map((p) => {
+    const urgente = giorniDa(p.data) <= 2 ? ` <span class="tag">${quando(p.data)}</span>` : "";
+    const aula = aulaPromemoria(p);
+    return `<tr><td class="when">${dataLunga(p.data)}${urgente}<small>${esc(p.orario) || quando(p.data)}</small></td>
+      <td>${puntoNuovo(p.verifica && nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia) || "—"}</strong><div class="muted">${esc(p.docente)}</div></td><td>${esc(p.testo)}${aula ? `<div class="muted">${esc(aula)}</div>` : ""}</td></tr>`;
+  });
+  return `<div class="box"><table><thead><tr><th>Quando</th><th>Materia</th><th>Dettagli</th></tr></thead><tbody>${righe.join("")}</tbody></table></div>`;
+}
+
+function listaCompiti(lista, vuoto) {
+  if (nascondiFatti) lista = lista.filter((c) => !fatti.has(c.id));
+  if (!lista.length) return `<div class="box"><div class="empty">${vuoto}</div></div>`;
+  const perGiorno = new Map();
+  lista.forEach((c) => perGiorno.set(c.consegna, [...(perGiorno.get(c.consegna) || []), c]));
+  let html = "";
+  perGiorno.forEach((compiti, data) => {
+    const scaduto = giorniDa(data) < 0 && compiti.some((c) => !fatti.has(c.id));
+    html += `<div class="day${scaduto ? " scaduto" : ""}">Per ${dataLunga(data)} <span class="muted">· ${quando(data)}</span></div><ul class="todo">`;
+    html += compiti.map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label>
+      <input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+      <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> — ${esc(c.testo)}</span></label></li>`).join("");
+    html += "</ul>";
+  });
+  return `<div class="box">${html}</div>`;
+}
+
+function listaConsigli(voci) {
+  if (!voci.length) return '<div class="box"><div class="empty">Nessun punto critico al momento.</div></div>';
+  const icona = { critico: "!", attenzione: "!", info: "i" };
+  return `<div class="box"><ul class="consigli">${voci.map((v) => `<li class="${v.livello}"><span class="icona" aria-hidden="true">${icona[v.livello]}</span>
+    <div><strong>${esc(v.titolo)}</strong><div class="muted">${esc(v.testo)}</div></div></li>`).join("")}</ul></div>`;
+}
+
+// Col tema «Nothing» numeri brevi e nomi in evidenza diventano scritte a punti; il testo vero resta per i lettori di schermo.
+const temaNothing = () => document.documentElement.dataset.tema === "nothing";
+const aPunti = (testo, passo) => `<span class="a-punti" role="img" aria-label="${esc(testo)}">${puntini(testo, passo)}</span>`;
+const grande = (testo, passo = 3) => (temaNothing() ? aPunti(testo, passo) : esc(testo));
+
+const tessera = (valore, etichetta, classe = "") => {
+  const v = String(valore);
+  return `<div class="card"><b class="${classe}">${temaNothing() && v.length <= 7 && !/[<&]/.test(v) ? aPunti(v, 4) : v}</b><span>${etichetta}</span></div>`;
+};
+
+/* ---------- novità ---------- */
+
+// Voti, verifiche e compiti comparsi da quando li hai visti l'ultima volta (per profilo, su questo dispositivo):
+// hanno un puntino rosso finché non esci dalla scheda che li mostra. Alla primissima apertura tutto conta come già visto.
+const chiaveVoto = (v) => `${v.data}|${v.materia}|${v.codice}|${v.descrizione}`;
+const chiaveVerifica = (p) => `${p.data}|${p.materia}|${p.testo}`;
+const VISTE_DA = { agenda: ["verifiche", "compiti"], compiti: ["compiti"], studio: ["verifiche"], voti: ["voti"] };
+let visti = null; // {voti, verifiche, compiti}: Set di chiavi
+
+const chiaviAttuali = () => ({ voti: D.voti.map(chiaveVoto), verifiche: verificheFuture().map(chiaveVerifica), compiti: D.compiti.map((c) => c.id) });
+const chiaveVisti = () => `visti-${(P && P.attivo) || ""}`;
+
+function caricaVisti() {
+  const attuali = chiaviAttuali();
+  let salvati = null;
+  try { salvati = JSON.parse(localStorage.getItem(chiaveVisti())); } catch {}
+  if (!salvati || typeof salvati !== "object") {
+    salvati = attuali;
+    try { localStorage.setItem(chiaveVisti(), JSON.stringify(attuali)); } catch {}
+  }
+  visti = Object.fromEntries(Object.keys(attuali).map((c) => [c, new Set(Array.isArray(salvati[c]) ? salvati[c] : [])]));
+}
+
+const nuovo = (categoria, chiave) => Boolean(visti && !visti[categoria].has(chiave));
+const contaNuovi = (categoria) => (visti && D && !D.vuoto ? chiaviAttuali()[categoria].filter((k) => !visti[categoria].has(k)).length : 0);
+const puntoNuovo = (si) => (si ? '<span class="punto-nuovo" role="img" aria-label="Nuovo" title="Nuovo"></span>' : "");
+
+function segnaVisti(schedaVista) {
+  const categorie = VISTE_DA[schedaVista];
+  if (!categorie || !visti || !D || D.vuoto) return;
+  const attuali = chiaviAttuali();
+  let cambiato = false;
+  categorie.forEach((c) => attuali[c].forEach((k) => { if (!visti[c].has(k)) { visti[c].add(k); cambiato = true; } }));
+  if (!cambiato) return;
+  try { localStorage.setItem(chiaveVisti(), JSON.stringify(Object.fromEntries(Object.entries(visti).map(([c, s]) => [c, [...s].slice(-1500)])))); } catch {}
+}
+
+// Il numero di novità accanto al nome delle schede.
+function contatoriSchede() {
+  document.querySelectorAll(".tabs button").forEach((b) => {
+    b.dataset.nome ||= b.textContent;
+    const n = (VISTE_DA[b.dataset.tab] || []).reduce((t, c) => t + contaNuovi(c), 0);
+    b.innerHTML = esc(b.dataset.nome) + (n ? ` <span class="conta-nuovi" aria-label="${n} novità">${n}</span>` : "");
+  });
+}
+
+/* ---------- schede ---------- */
+
+function listaVariazioni(lista) {
+  return `<div class="box"><table><thead><tr><th>Quando</th><th>Lezione</th><th>Variazione</th></tr></thead><tbody>${lista.map((l) => `
+    <tr><td class="when">${dataLunga(l.data)}${l.nuova ? ' <span class="tag bad">nuova</span>' : ""}<small>${l.inizio}–${l.fine}</small></td>
+    <td><strong>${esc(l.materia)}</strong><div class="muted">${esc([l.docenti.join(", "), l.aule.join(", ")].filter(Boolean).join(" · "))}</div></td>
+    <td><span class="tag">${esc(l.stato)}</span><div class="muted">${dettagliVariazione(l)}</div></td></tr>`).join("")}</tbody></table></div>`;
+}
+
+function schedaOrario() {
+  const o = D.orario;
+  if (!o) return `<div class="box" style="margin-top:20px"><div class="empty">${D.profilo && !D.profilo.untis
+    ? "Questo profilo non ha l'orario WebUntis. Se la scuola lo usa, aggiungilo da Profili → Modifica."
+    : "Orario non ancora scaricato: premi «Aggiorna»."}</div></div>`;
+  if (!o.settimane.length) return '<div class="box" style="margin-top:20px"><div class="empty">Nessuna lezione in orario per questa settimana e la prossima (vacanze?).</div></div>';
+  settimanaOrario = Math.min(settimanaOrario, o.settimane.length - 1);
+  const s = o.settimane[settimanaOrario];
+  const lezioni = o.lezioni.filter((l) => l.data >= s.inizio && l.data <= s.fine);
+  const variazioni = lezioni.filter((l) => l.variazione);
+  const cella = (g, inizio) => {
+    const qui = lezioni.filter((l) => l.data === g && l.inizio === inizio);
+    if (!qui.length) return "<td></td>";
+    const classe = qui.some((l) => l.stato === "annullata") ? "annullata" : qui.some((l) => l.variazione) ? "variata" : "";
+    return `<td class="${classe}">${qui.map((l) => `<div class="lez"><strong>${esc(l.materia)}</strong>
+      <div class="muted">${esc([l.docenti.join(", "), l.aule.join(", ")].filter(Boolean).join(" · "))}</div>
+      ${l.variazione ? `<div><span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}${l.nuova ? " · nuova" : ""}</span></div><div class="muted">${dettagliVariazione(l)}</div>` : ""}</div>`).join("")}</td>`;
+  };
+  const t = new Date(o.scaricato);
+  return `<div class="barra-azioni">
+      <div class="segmenti" role="group" aria-label="Settimana">${o.settimane.map((x, i) => `<button type="button" class="btn small${i === settimanaOrario ? "" : " ghost"}" data-settimana="${i}">${i === 0 ? "Questa settimana" : i === 1 ? "Prossima" : "Dal " + dataBreve(x.inizio)}</button>`).join("")}</div>
+      <a class="btn ghost small" href="/api/pdf?settimana=${settimanaOrario}" target="_blank" rel="noopener">Scarica PDF</a>
+    </div>
+    <p class="sub" style="margin:0 0 12px">Dal ${dataBreve(s.inizio)} al ${dataBreve(s.fine)} · ${variazioni.length ? plurale(variazioni.length, "variazione", "variazioni") : "nessuna variazione"} · orario letto da WebUntis ${quando(o.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(o.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}</p>
+    <div class="box"><table class="orario"><thead><tr><th></th>${s.giorni.map((g) => `<th class="${g === D.oggi ? "oggi" : ""}">${GIORNI[giorno(g).getDay()]} ${giorno(g).getDate()}</th>`).join("")}</tr></thead><tbody>
+      ${s.fasce.map(([inizio, fine]) => `<tr><td class="ora"><strong>${inizio}</strong><br>${fine}</td>${s.giorni.map((g) => cella(g, inizio)).join("")}</tr>`).join("")}
+    </tbody></table></div>
+    ${variazioni.length ? `<h2>Variazioni della settimana</h2>${listaVariazioni(variazioni)}` : ""}
+    <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>`;
+}
+
+function schedaAgenda() {
+  const verifiche = D.promemoria.filter((p) => p.verifica && giorniDa(p.data) >= 0), altri = D.promemoria.filter((p) => !p.verifica && giorniDa(p.data) >= 0);
+  const variazioni = lezioniOrario().filter((l) => l.variazione && giorniDa(l.data) >= 0);
+  const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0);
+  const daFare = futuri.filter((c) => !fatti.has(c.id)).length;
+  const insufficienti = D.statistiche.filter((s) => s.insufficiente).length;
+  const urgenti = D.consigli.filter((c) => c.livello !== "info").slice(0, 3);
+  return `<div class="cards">
+      ${tessera(verifiche.length, "verifiche in arrivo")}
+      ${tessera(daFare, "compiti da fare")}
+      ${tessera(media(D.media_generale), "media generale")}
+      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
+    </div>
+    ${urgenti.length ? `<h2>Da tenere d'occhio</h2>${listaConsigli(urgenti)}` : ""}
+    ${variazioni.length ? `<h2>Variazioni d'orario</h2>${listaVariazioni(variazioni)}` : ""}
+    <h2>Verifiche in arrivo</h2>${tabellaPromemoria(verifiche)}
+    <h2>Compiti da fare</h2>${listaCompiti(futuri, "Nessun compito da fare.")}
+    ${altri.length ? `<h2>Altri promemoria</h2>${tabellaPromemoria(altri)}
+      <p class="note">Promemoria futuri senza parole chiave da verifica: dai un'occhiata, potrebbe essercene una scritta in modo insolito.</p>` : ""}
+    <h2>Nel tuo calendario</h2>${riquadroCalendario()}`;
+}
+
+// Mappa stile GitHub: una casella per giorno di consegna, blu pieno se hai fatto tutto, più chiaro man mano che ne salti.
+function coloreGiorno(quota) { return `color-mix(in srgb, var(--series-1) ${Math.round(30 + quota * 70)}%, var(--track))`; }
+
+function mappaCompiti() {
+  const tutti = D.compiti_anno || [];
+  if (!tutti.length) return "";
+  const perGiorno = new Map();
+  tutti.forEach((c) => { const g = perGiorno.get(c.consegna) || { n: 0, fatti: 0 }; g.n++; if (fatti.has(c.id)) g.fatti++; perGiorno.set(c.consegna, g); });
+  const iso = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+  const lunedi = (d) => { const r = new Date(d); r.setDate(r.getDate() - ((r.getDay() + 6) % 7)); return r; };
+  const date = [...perGiorno.keys()].sort();
+  const inizio = lunedi(giorno(date[0])), fine = lunedi(giorno(date[date.length - 1] > D.oggi ? date[date.length - 1] : D.oggi));
+
+  let caselle = "", mesi = "", ultimoMese = -1, passati = 0, passatiFatti = 0, serie = 0, serieAperta = true;
+  const giorniPassati = [];
+  for (let s = new Date(inizio), col = 0; s <= fine; s.setDate(s.getDate() + 7), col++) {
+    const primo = new Date(s);
+    if (primo.getMonth() !== ultimoMese) { mesi += `<span style="grid-column:${col + 1}">${MESI[primo.getMonth()]}</span>`; ultimoMese = primo.getMonth(); }
+    for (let r = 0; r < 7; r++) {
+      const d = new Date(s); d.setDate(d.getDate() + r);
+      const k = iso(d), g = perGiorno.get(k), oggi = k === D.oggi, passato = k < D.oggi;
+      const cl = [oggi ? "oggi" : "", !g ? "vuoto" : ""];
+      if (!g) { caselle += `<i class="${cl.join(" ")}" ${tip(`<b>${dataLunga(k)}</b><br>Nessun compito`)}></i>`; continue; }
+      const quota = g.fatti / g.n, finito = g.fatti === g.n;
+      const aperto = !passato && !oggi; // consegna ancora lontana: si può ancora fare
+      if (!aperto) { passati += g.n; passatiFatti += g.fatti; }
+      const testo = `<b>${dataLunga(k)}</b><br>${g.fatti} su ${plurale(g.n, "compito fatto", "compiti fatti")}`;
+      if (aperto && !finito) caselle += `<i class="futuro ${cl.join(" ")}" ${tip(testo)}></i>`;
+      else if (g.fatti === 0) caselle += `<i class="nessuno ${cl.join(" ")}" ${tip(testo)}></i>`;
+      else caselle += `<i class="${cl.join(" ")}" style="background:${coloreGiorno(quota)}" ${tip(testo)}></i>`;
+      if (!aperto) giorniPassati.push({ k, finito, oggi });
+    }
+  }
+  // Serie: giorni di consegna consecutivi (dal più recente) con tutto fatto. Oggi non incompleto non interrompe la serie.
+  for (let i = giorniPassati.length - 1; i >= 0 && serieAperta; i--) {
+    if (giorniPassati[i].finito) serie++;
+    else if (!giorniPassati[i].oggi) serieAperta = false;
+  }
+  const quotaTot = passati ? Math.round((passatiFatti / passati) * 100) : null;
+  const giorniNomi = ["Lun", "", "Mer", "", "Ven", "", ""].map((n) => `<span>${n}</span>`).join("");
+  const legendaMappa = `<div class="heat-legenda">Niente <i class="leg-nessuno"></i>${[0.25, 0.5, 0.75, 1].map((q) => `<i style="background:${coloreGiorno(q)}"></i>`).join("")} Tutto fatto
+    <span style="margin-left:12px"><i style="border:1px dashed var(--axis)"></i> da consegnare</span></div>`;
+  return `<h2>Il tuo andamento</h2>
+    <div class="cards" style="margin-top:0">
+      ${tessera(quotaTot == null ? "–" : quotaTot + "%", "compiti fatti, tra quelli già in scadenza")}
+      ${tessera(serie, "giorni di fila con tutto fatto", serie ? "ok" : "")}
+    </div>
+    <div class="box pad" style="margin-top:12px"><p class="chart-title">Compiti fatti, giorno per giorno</p>
+      <p class="chart-sub">Ogni casella è un giorno di consegna: colore pieno se hai spuntato tutto, sempre più chiaro se ne salti. ${temaNothing() ? "Rosso" : "Grigio"} = nessuno fatto.</p>
+      <div class="heat" data-ultimo><div class="heat-in"><div class="heat-mesi" style="grid-template-columns:repeat(${Math.round((fine - inizio) / 6048e5) + 1},15px)">${mesi}</div>
+        <div class="heat-corpo"><div class="heat-giorni">${giorniNomi}</div><div class="heat-griglia">${caselle}</div></div></div></div>
+      ${legendaMappa}
+      <p class="note">I compiti che non hai mai spuntato contano come non fatti, anche quelli di prima di iniziare a usare l'app.</p></div>`;
+}
+
+function schedaCompiti() {
+  const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0), scaduti = D.compiti.filter((c) => giorniDa(c.consegna) < 0);
+  const nFatti = futuri.filter((c) => fatti.has(c.id)).length;
+  const nonFatti = scaduti.filter((c) => !fatti.has(c.id)).length;
+  return `<div class="cerca"><input type="search" id="cerca-compiti" value="${esc(ricerca)}" placeholder="Cerca nei compiti di tutto l'anno: materia, parola, pagina…" aria-label="Cerca nei compiti" autocomplete="off"></div>
+    <div id="risultati-ricerca" class="risultati">${risultatiRicerca()}</div>
+    <div id="compiti-normali"${ricerca.trim() ? " hidden" : ""}>
+    <div class="barra-azioni">
+      <div style="flex:1;min-width:220px"><strong>Fatti ${nFatti} su ${futuri.length}</strong> <span class="muted">tra quelli da consegnare</span>
+        <div class="progresso"><i style="width:${futuri.length ? (nFatti / futuri.length) * 100 : 0}%"></i></div></div>
+      <label><input type="checkbox" id="nascondi" ${nascondiFatti ? "checked" : ""}> Nascondi i fatti</label>
+      <a class="btn ghost small" href="/api/esporta-compiti" target="_blank" rel="noopener">Scarica tutti i compiti (PDF)</a>
+    </div>
+    ${mappaCompiti()}
+    <h2>Da fare</h2>${listaCompiti(futuri, nascondiFatti && futuri.length ? "Tutto fatto!" : "Nessun compito da fare.")}
+    <h2>Scaduti negli ultimi giorni ${nonFatti ? `<span class="tag bad">${nonFatti} non spuntati</span>` : ""}</h2>
+    ${listaCompiti(scaduti.slice().reverse(), nascondiFatti && scaduti.length ? "Nessun arretrato." : "Nessun compito scaduto di recente.")}
+    <p class="note">Spunta un compito quando l'hai fatto: resta salvato anche dopo l'aggiornamento dei dati.</p></div>`;
+}
+
+// Avvisa se la media calcolata qui non coincide con quella del registro (es. voti pesati).
+function notaRegistro(s) {
+  if (s.media_registro == null || Math.abs(s.media_registro - s.media) < 0.05) return "";
+  return ` <span title="Il registro può pesare i voti in modo diverso">Sul registro la media risulta ${media(s.media_registro)}.</span>`;
+}
+
+function testoMinimo(s) {
+  const v = s.minimo_sufficienza;
+  if (s.insufficiente) return v > 10 ? "Una sola prova non basta per tornare al 6: servono più voti alti." : `Per tornare al 6 alla prossima prova serve almeno <strong>${num(v)}</strong>.`;
+  if (v <= 1) return "Alla prossima prova resti al 6 con <strong>qualsiasi voto</strong>.";
+  return `Voto minimo alla prossima prova per restare al 6: <strong>${num(v)}</strong>.`;
+}
+
+function simulatore() {
+  const tutte = [...new Set([...D.materie, ...D.statistiche.map((s) => s.materia)])].sort();
+  if (!tutte.includes(simMateria)) simMateria = (D.statistiche[0] || {}).materia || tutte[0] || "";
+  const base = Object.fromEntries(D.statistiche.map((s) => [s.materia, { somma: s.somma, n: s.numero }]));
+  const dopo = JSON.parse(JSON.stringify(base));
+  simulati.forEach((x) => { const m = (dopo[x.materia] ||= { somma: 0, n: 0 }); m.somma += x.voto; m.n += 1; });
+  const mediaDi = (o) => (o && o.n ? o.somma / o.n : null);
+  const generale = (o) => { const m = Object.values(o).filter((x) => x.n).map(mediaDi); return m.length ? m.reduce((a, b) => a + b, 0) / m.length : null; };
+  const cur = dopo[simMateria] || { somma: 0, n: 0 };
+  const serve = (obiettivo) => {
+    const v = arrotondaSu(obiettivo * (cur.n + 1) - cur.somma);
+    return v > 10 ? "non basta una prova" : v <= 1 ? "qualsiasi voto" : `almeno ${num(v)}`;
+  };
+  const freccia = (prima, poi) => (prima == null || poi == null || Math.abs(poi - prima) < 0.005 ? "" : poi > prima ? ` <span class="ok">▲ ${media(poi - prima)}</span>` : ` <span class="bad">▼ ${media(prima - poi)}</span>`);
+  return `<div class="box pad">
+    <div class="sim">
+      <label>Materia<select id="sim-materia">${tutte.map((m) => `<option${m === simMateria ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
+      <label>Voto ipotetico<input id="sim-voto" type="number" min="1" max="10" step="0.25" value="6"></label>
+      <button class="btn" id="sim-aggiungi" type="button">Aggiungi</button>
+      ${simulati.length ? '<button class="btn ghost" id="sim-azzera" type="button">Azzera</button>' : ""}
+    </div>
+    ${simulati.length ? `<div class="chips">${simulati.map((x, i) => `<span class="chip">${esc(x.materia)}: <strong>${num(x.voto)}</strong><button type="button" data-togli="${i}" aria-label="Togli">✕</button></span>`).join("")}</div>` : '<p class="note">Aggiungi uno o più voti ipotetici per vedere come cambierebbero le medie. Non modifica nulla sul registro.</p>'}
+    <div class="sim-ris">
+      <div><span>Media di ${esc(simMateria)}</span><b>${media(mediaDi(cur))}${freccia(mediaDi(base[simMateria]), mediaDi(cur))}</b><span>ora ${media(mediaDi(base[simMateria]))}</span></div>
+      <div><span>Media generale</span><b>${media(generale(dopo))}${freccia(generale(base), generale(dopo))}</b><span>ora ${media(generale(base))}</span></div>
+      <div><span>Alla prova successiva, per avere</span><b style="font-size:15px;line-height:1.7">6 → ${serve(6)}<br>7 → ${serve(7)}<br>8 → ${serve(8)}</b></div>
+    </div></div>`;
+}
+
+// Tema «Nothing»: la media di ogni materia come dieci puntini (uno per punto), mezzo acceso per i decimali.
+function votiAPunti(lista) {
+  if (!lista.length) return '<p class="muted">Ancora nessun dato.</p>';
+  const soglia = Math.round(D.sufficienza);
+  return `<div class="voti-punti">${lista.map((s) => {
+    const pieni = Math.floor(s.media), mezzo = s.media - pieni >= 0.25;
+    const punti = Array.from({ length: 10 }, (_, i) => `<i class="${i < pieni ? "si" : i === pieni && mezzo ? "mezzo" : ""}"></i>${i + 1 === soglia ? '<b class="linea"></b>' : ""}`).join("");
+    return `<div class="lab" title="${esc(s.materia)}">${esc(s.materia)}</div>
+      <div class="fila${s.insufficiente ? " sotto" : ""}" ${tip(`<b>${esc(s.materia)}</b><br>Media ${media(s.media)} su ${plurale(s.numero, "voto", "voti")}`)}>${punti}</div>
+      <div class="val${s.insufficiente ? " bad" : ""}">${media(s.media)}</div>`;
+  }).join("")}</div>`;
+}
+
+function schedaVoti() {
+  const st = D.statistiche, insufficienti = st.filter((s) => s.insufficiente).length;
+  const migliore = st.length ? st[st.length - 1] : null;
+  const frecce = { su: ["↑", "In miglioramento", "ok"], giu: ["↓", "In calo", "bad"], stabile: ["=", "Stabile", ""] };
+
+  const perMateria = temaNothing() ? votiAPunti(st.slice().reverse()) : barre(st.slice().reverse().map((s) => ({
+    label: s.materia, segmenti: [{ v: s.media, colore: "var(--series-1)" }], val: `<strong>${media(s.media)}</strong>${s.insufficiente ? ' <span class="tag bad">sotto il 6</span>' : ""}`,
+    tip: `<b>${esc(s.materia)}</b><br>Media ${media(s.media)} su ${plurale(s.numero, "voto", "voti")}`,
+  })), 10, D.sufficienza);
+
+  const materieConVoti = st.map((s) => s.materia).sort();
+  if (!materieConVoti.includes(materiaGrafico)) materiaGrafico = "";
+  const scelti = D.voti.filter((v) => !materiaGrafico || v.materia === materiaGrafico);
+  const punti = scelti.map((v) => ({ t: giorno(v.data), y: v.valore, tip: `<b>${esc(v.materia)}: ${esc(v.codice)}</b><br>${dataLunga(v.data)}${v.tipo ? " · " + esc(v.tipo) : ""}` }));
+  let somma = 0;
+  const progressiva = scelti.map((v, i) => ({ t: giorno(v.data), y: (somma += v.valore) / (i + 1) }));
+  const nelTempo = scelti.length ? segnaposto((w) => andamento(w, punti, materiaGrafico ? null : progressiva)) : '<p class="muted">Ancora nessun voto.</p>';
+
+  const distribuzione = D.voti.length ? segnaposto((w) => colonne(w, D.distribuzione.map((d) => ({
+    label: d.fascia, valori: [d.numero], tip: `<b>${d.fascia === "<4" ? "Sotto il 4" : "Voti tra " + d.fascia + " e " + (d.fascia === "10" ? "10" : (+d.fascia + 1) + " escluso")}</b><br>${plurale(d.numero, "voto", "voti")}`,
+  })), ["var(--series-1)"], { titolo: "Distribuzione dei voti" })) : '<p class="muted">Ancora nessun voto.</p>';
+
+  const riga = (etichetta, r) => ({ label: etichetta, segmenti: [{ v: r.media || 0, colore: "var(--series-1)" }], val: `<strong>${media(r.media)}</strong> <span class="muted">(${r.numero})</span>`, tip: `<b>${esc(etichetta)}</b><br>Media ${media(r.media)} su ${plurale(r.numero, "voto", "voti")}` });
+  const perTipo = barre(D.voti_per_tipo.map((r) => riga(r.tipo, r)), 10, D.sufficienza);
+  const perMese = barre(D.voti_per_mese.map((r) => riga(mese(r.mese), r)), 10, D.sufficienza);
+  const perPeriodo = barre(D.voti_per_periodo.filter((r) => r.numero).map((r) => riga(r.periodo, r)), 10, D.sufficienza);
+
+  const tabella = st.length ? `<div class="box"><table><thead><tr><th>Materia</th><th class="n">Media</th><th class="n">Voti</th><th class="n">Scritto</th><th class="n">Orale</th><th class="n">Pratico</th><th class="n">Min / Max</th><th class="n">Ultimo</th><th class="n">Andamento</th></tr></thead><tbody>
+    ${st.map((s) => { const [f, titolo, classe] = frecce[s.andamento] || ["·", "Pochi voti per dirlo", ""]; const c = s.insufficiente ? " insuff" : "";
+      return `<tr class="con-sotto${c}"><td><strong>${esc(s.materia)}</strong></td><td class="n ${s.insufficiente ? "bad" : ""}">${media(s.media)}</td><td class="n">${s.numero}</td>
+        <td class="n">${media(s.media_scritto)}</td><td class="n">${media(s.media_orale)}</td><td class="n">${media(s.media_pratico)}</td>
+        <td class="n">${num(s.minimo)} / ${num(s.massimo)}</td><td class="n">${num(s.ultimo)}</td><td class="n ${classe}" title="${titolo}">${f}</td></tr>
+        <tr class="sotto${c}"><td colspan="9">${testoMinimo(s)}${notaRegistro(s)}</td></tr>`; }).join("")}
+    </tbody></table></div>
+    <p class="note">Materie ordinate dalla media più bassa. «Andamento» confronta gli ultimi 3 voti con i precedenti.</p>` : '<div class="box"><div class="empty">Nessun voto registrato finora.</div></div>';
+
+  const fuori = (D.voti_fuori_media || []).map((v) => ({ ...v, fuori: true }));
+  const tutti = [...D.voti, ...fuori].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  const elenco = tutti.length ? `<div class="box"><table><thead><tr><th>Data</th><th>Materia</th><th class="n">Voto</th><th>Tipo</th><th>Prova</th></tr></thead><tbody>
+    ${tutti.map((v) => `<tr><td class="when">${dataBreve(v.data)}</td><td>${puntoNuovo(!v.fuori && nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${esc(v.docente)}</div></td>
+      <td class="n ${!v.fuori && v.valore < D.sufficienza ? "bad" : ""}"><strong>${esc(v.codice)}</strong>${v.fuori ? '<div><span class="tag">non fa media</span></div>' : ""}</td><td>${esc(v.tipo) || "—"}</td><td class="muted">${esc(v.descrizione)}</td></tr>`).join("")}
+    </tbody></table></div>${fuori.length ? '<p class="note">I voti segnati «non fa media» (giudizi senza numero o voti esclusi dal docente) non entrano in medie e grafici.</p>' : ""}` : "";
+
+  return `<div class="cards">
+      ${tessera(media(D.media_generale), "media generale")}
+      ${tessera(D.voti.length, "voti registrati")}
+      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
+      ${tessera(migliore ? esc(migliore.materia) : "–", migliore ? `materia migliore (${media(migliore.media)})` : "materia migliore")}
+    </div>
+    <h2>Dove migliorare</h2>${listaConsigli(D.consigli)}
+    <h2>Grafici</h2>
+    <div class="grid2">
+      ${grafico("Media per materia", temaNothing() ? "Ogni puntino è un punto di media; la linea rossa segna la sufficienza." : "La lineetta verticale segna la sufficienza.", perMateria)}
+      <div class="box pad"><div class="controllo"><div><p class="chart-title">Voti nel tempo</p>
+        <p class="chart-sub">${materiaGrafico ? "Ogni punto è un voto." : "Ogni punto è un voto; la linea blu è la media progressiva."} La riga grigia più marcata è la sufficienza.</p></div>
+        <select id="materia-grafico" aria-label="Materia"><option value="">Tutte le materie</option>${materieConVoti.map((m) => `<option${m === materiaGrafico ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></div>${nelTempo}</div>
+      ${grafico("Distribuzione dei voti", "Quanti voti hai preso per ogni fascia.", distribuzione)}
+      ${grafico("Scritto, orale e pratico", "Media per tipo di prova (tra parentesi il numero di voti).", perTipo)}
+      ${grafico("Media per mese", "Come sono andati i voti mese per mese.", perMese)}
+      ${grafico("Media per periodo", "Voti raggruppati per quadrimestre.", perPeriodo)}
+    </div>
+    <h2>Materia per materia</h2>${tabella}
+    <h2>Simulatore «e se prendo…»</h2>${simulatore()}
+    ${elenco ? `<h2>Tutti i voti</h2>${elenco}` : ""}`;
+}
+
+function schedaCarico() {
+  const c = D.carico, blu = "var(--series-1)", arancio = "var(--series-2)";
+  const inElenco = D.compiti.length, fattiElenco = D.compiti.filter((x) => fatti.has(x.id)).length;
+  const dettaglio = (r) => `${plurale(r.compiti, "compito", "compiti")} · ${plurale(r.verifiche, "verifica", "verifiche")}`;
+  const maxMateria = Math.max(1, ...c.per_materia.map((r) => r.compiti + r.verifiche));
+  const maxDocente = Math.max(1, ...c.per_docente.map((r) => r.compiti + r.verifiche));
+  const righe = (lista, chiave) => lista.map((r) => ({
+    label: r[chiave], segmenti: [{ v: r.compiti, colore: blu }, { v: r.verifiche, colore: arancio }],
+    val: `<strong>${r.compiti}</strong> + <strong>${r.verifiche}</strong>`, tip: `<b>${esc(r[chiave])}</b><br>${dettaglio(r)}`,
+  }));
+  const settimane = segnaposto((w) => colonne(w, c.per_settimana.map((s) => ({
+    label: dataBreve(s.inizio), valori: [s.compiti, s.verifiche], evid: s.corrente,
+    tip: `<b>Settimana del ${dataBreve(s.inizio)}${s.corrente ? " (questa)" : ""}</b><br>${dettaglio(s)}`,
+  })), [blu, arancio], { titolo: "Compiti e verifiche per settimana" }));
+  const prossimi = segnaposto((w) => colonne(w, c.prossimi_giorni.map((g) => ({
+    label: `${GIORNI[giorno(g.data).getDay()].slice(0, 3)} ${giorno(g.data).getDate()}`, valori: [g.compiti, g.verifiche], evid: g.data === D.oggi,
+    tip: `<b>${dataLunga(g.data)}</b> · ${quando(g.data)}<br>${dettaglio(g)}`,
+  })), [blu, arancio], { titolo: "Prossimi 14 giorni" }));
+  const giorniSettimana = segnaposto((w) => colonne(w, c.per_giorno_settimana.map((g) => ({
+    label: g.giorno.slice(0, 3), valori: [g.compiti], tip: `<b>${g.giorno}</b><br>${plurale(g.compiti, "compito", "compiti")} da consegnare`,
+  })), [blu], { titolo: "Compiti per giorno di consegna" }));
+  const pieni = c.prossimi_giorni.filter((g) => g.verifiche >= 2 || g.compiti + g.verifiche >= 4);
+  const serie = legenda([["Compiti", blu], ["Verifiche", arancio]]);
+
+  return `<div class="cards">
+      ${tessera(c.totale_compiti, "compiti assegnati da inizio anno")}
+      ${tessera(c.totale_verifiche, "verifiche segnate da inizio anno")}
+      ${tessera(num(c.media_compiti_settimana), "compiti a settimana, in media")}
+      ${tessera(inElenco ? Math.round((fattiElenco / inElenco) * 100) + "%" : "–", `compiti spuntati (${fattiElenco} su ${inElenco} in elenco)`)}
+    </div>
+    ${pieni.length ? `<h2>Giorni pieni in arrivo</h2><div class="box"><ul class="consigli">${pieni.map((g) => `<li class="attenzione"><span class="icona" aria-hidden="true">!</span><div><strong>${dataLunga(g.data)}</strong> <span class="muted">· ${quando(g.data)}</span><div class="muted">${dettaglio(g)}</div></div></li>`).join("")}</ul></div>` : ""}
+    <h2>Nel tempo</h2>
+    <div class="grid2">
+      ${grafico("Prossimi 14 giorni", "Cosa c'è da consegnare o da affrontare, giorno per giorno.", serie + prossimi)}
+      ${grafico("Per settimana", "Da inizio anno; in grassetto la settimana in corso.", serie + settimane)}
+    </div>
+    <h2>Da dove arriva il lavoro</h2>
+    <div class="grid2">
+      ${grafico("Per materia", "Compiti + verifiche da inizio anno.", serie + barre(righe(c.per_materia, "materia"), maxMateria))}
+      ${grafico("Per docente", "Chi assegna di più.", serie + barre(righe(c.per_docente, "docente"), maxDocente))}
+      ${grafico("Giorni di consegna", "In quali giorni della settimana cadono più compiti.", giorniSettimana)}
+    </div>`;
+}
+
+function schedaAssenze() {
+  const a = D.assenze, quota = a.limite_ore ? Math.min(100, (a.ore_perse / a.limite_ore) * 100) : 0;
+  const nomi = { assenza: "Assenza", ritardo: "Ritardo", uscita: "Uscita anticipata" };
+  const eventi = a.eventi.length ? `<div class="box"><table><thead><tr><th>Data</th><th>Tipo</th><th class="n">Ore perse</th><th>Stato</th><th>Dettagli</th></tr></thead><tbody>
+    ${a.eventi.slice().reverse().map((e) => `<tr><td class="when">${dataLunga(e.data)}</td><td>${nomi[e.tipo]}</td><td class="n">${e.ore == null ? '<span title="Non determinabile dai dati del registro">?</span>' : e.ore}</td>
+      <td>${e.da_giustificare ? '<span class="tag bad">da giustificare</span>' : e.giustificata ? "Giustificata" : "—"}</td><td class="muted">${esc(e.nota)}</td></tr>`).join("")}
+    </tbody></table></div>` : '<div class="box"><div class="empty">Nessuna assenza, ritardo o uscita registrati.</div></div>';
+  const maxMateria = Math.max(1, ...a.per_materia.map((r) => r.ore));
+  const perMateria = barre(a.per_materia.map((r) => ({ label: r.materia, segmenti: [{ v: r.ore, colore: "var(--series-1)" }], val: `<strong>${r.ore}</strong> h`, tip: `<b>${esc(r.materia)}</b><br>${plurale(r.ore, "ora persa", "ore perse")}` })), maxMateria);
+  const perMese = a.per_mese.some((m) => m.ore) ? segnaposto((w) => colonne(w, a.per_mese.map((m) => ({ label: mese(m.mese), valori: [m.ore], tip: `<b>${mese(m.mese)}</b><br>${plurale(m.ore, "ora persa", "ore perse")}` })), ["var(--series-1)"], { titolo: "Ore perse per mese" })) : '<p class="muted">Nessuna ora persa finora.</p>';
+
+  return `<div class="cards">
+      ${tessera(a.ore_perse, "ore di lezione perse")}
+      ${tessera(a.giorni_assenza, "giorni di assenza")}
+      ${tessera(a.ritardi, "ritardi")}
+      ${tessera(a.uscite, "uscite anticipate")}
+      ${tessera(a.da_giustificare, "da giustificare", a.da_giustificare ? "bad" : "ok")}
+    </div>
+    <h2>Limite di assenze</h2>
+    <div class="box pad">
+      <p class="chart-title">Puoi ancora perdere ${plurale(Math.max(0, a.ore_rimaste), "ora", "ore")}</p>
+      <div class="meter${quota >= 80 ? " alto" : ""}" ${tip(`<b>${a.ore_perse} ore perse</b> su ${a.limite_ore} consentite`)}><i style="width:${quota}%"></i></div>
+      <p class="note" style="margin:0">${a.ore_perse} ore perse su un massimo di ${a.limite_ore} (il 25% del monte ore annuale, stimato in 32 ore per 33 settimane: puoi cambiare la stima in config.py).
+      Finora sono state svolte ${a.ore_svolte} ore di lezione${a.percentuale == null ? "" : `: ne hai perse il ${num(a.percentuale)}%`}.</p>
+      ${a.eventi_senza_ore ? `<p class="note">Per ${plurale(a.eventi_senza_ore, "evento", "eventi")} le ore non si possono ricavare dal registro e non sono contate.</p>` : ""}
+    </div>
+    <h2>Dettaglio</h2>${eventi}
+    <h2>Dove hai perso ore</h2>
+    <div class="grid2">
+      ${grafico("Per materia", "Ore di lezione saltate in ogni materia.", perMateria)}
+      ${grafico("Per mese", "Ore perse mese per mese.", perMese)}
+    </div>`;
+}
+
+/* ---------- piano di studio ---------- */
+
+// Quattro passi brevi prima di ogni verifica: si studia scrivendo poco e a libro chiuso, così si capisce invece di ricopiare.
+const PASSI_STUDIO = [
+  { prima: 4, titolo: "Fai la mappa", testo: "Sfoglia gli argomenti e scrivi l'elenco di cosa devi sapere: una riga per argomento, niente di più.", min: 20 },
+  { prima: 3, titolo: "Scrivi a libro chiuso", testo: "Per ogni argomento scrivi 3–5 righe senza guardare, poi controlla sul libro e correggi con un altro colore.", min: 40 },
+  { prima: 2, titolo: "Interrogati", testo: "Inventa 5–10 domande e rispondi senza guardare. Segna quelle che sbagli.", min: 30 },
+  { prima: 1, titolo: "Ripasso finale", testo: "Ripeti ad alta voce e rivedi solo le domande che avevi sbagliato.", min: 20 },
+];
+
+const verificheFuture = () => D.promemoria.filter((p) => p.verifica && giorniDa(p.data) >= 0);
+
+// I passi di ogni verifica in arrivo. Un passo il cui giorno è già passato (verifica segnata tardi) slitta a oggi.
+function pianoStudio() {
+  const passi = [];
+  verificheFuture().filter((p) => giorniDa(p.data) >= 1).forEach((p) => {
+    const sigla = piega(p.materia).replace(/[^a-z0-9]+/g, "").slice(0, 24) || "verifica";
+    PASSI_STUDIO.forEach((s) => {
+      const previsto = spostaGiorni(p.data, -s.prima);
+      passi.push({ ...s, id: `studio-${p.data}-${sigla}-${s.prima}`, verifica: p, giorno: previsto < D.oggi ? D.oggi : previsto, slittato: previsto < D.oggi });
+    });
+  });
+  return passi.sort((a, b) => (a.giorno < b.giorno ? -1 : a.giorno > b.giorno ? 1 : b.prima - a.prima));
+}
+
+function listaPassi(passi, conMateria) {
+  return `<ul class="todo">${passi.map((s) => `<li class="${fatti.has(s.id) ? "fatto" : ""}"><label>
+    <input type="checkbox" data-id="${s.id}" ${fatti.has(s.id) ? "checked" : ""}>
+    <span>${conMateria ? `<strong>${esc(s.verifica.materia)}</strong> — ` : ""}<b>${s.titolo}</b> <span class="muted">(${s.min} min)</span>
+      <span class="muted passo">${s.testo}</span></span></label></li>`).join("")}</ul>`;
+}
+
+function schedaStudio() {
+  const passi = pianoStudio();
+  const oggi = passi.filter((s) => s.giorno === D.oggi);
+  const daFareOggi = oggi.filter((s) => !fatti.has(s.id));
+  const perVerifica = new Map();
+  passi.forEach((s) => { const k = `${s.verifica.data}|${s.verifica.materia}`; perVerifica.set(k, [...(perVerifica.get(k) || []), s]); });
+  const verificaOggi = verificheFuture().filter((p) => giorniDa(p.data) === 0);
+  if (!perVerifica.size) return `${verificaOggi.length ? `<div class="avviso">Oggi hai ${plurale(verificaOggi.length, "verifica", "verifiche")}: ${verificaOggi.map((p) => esc(p.materia)).join(", ")}. In bocca al lupo!</div>` : ""}
+    <div class="box" style="margin-top:20px"><div class="empty">Nessuna verifica in arrivo: niente da pianificare. Quando ne compare una sul registro, qui trovi il piano giorno per giorno.</div></div>`;
+  const schede = [...perVerifica.values()].map((lista) => {
+    const p = lista[0].verifica, fattiN = lista.filter((s) => fatti.has(s.id)).length;
+    const perGiorno = new Map();
+    lista.forEach((s) => perGiorno.set(s.giorno, [...(perGiorno.get(s.giorno) || []), s]));
+    const n = giorniDa(p.data);
+    // Conto alla rovescia grande (a punti col tema «Nothing») e un puntino per ogni passo, pieno quando è spuntato.
+    return `<div class="box"><div class="pad-s conto-verifica">
+        <div class="conto-num${n <= 1 ? " urgente" : ""}">${temaNothing() ? aPunti(String(n).padStart(2, "0"), 5) : `<b>${n}</b>`}<span>${n === 1 ? "giorno" : "giorni"}</span></div>
+        <div class="conto-info"><h3>${esc(p.materia) || "Verifica"}</h3>
+          <p class="muted" style="margin:2px 0 0">${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${esc(p.testo)}</p>
+          <div class="passi-punti" aria-hidden="true">${lista.map((s) => `<i class="${fatti.has(s.id) ? "si" : ""}"></i>`).join("")}</div>
+          <span class="muted passi-conto">${fattiN} di ${lista.length} passi</span></div></div>
+      ${[...perGiorno].map(([g, s]) => `<div class="day">${g === D.oggi ? "Oggi" : dataLunga(g)}${g === D.oggi && s.some((x) => x.slittato) ? ' <span class="muted">· recupero: la verifica è stata segnata da poco</span>' : ""}</div>${listaPassi(s, false)}`).join("")}</div>`;
+  }).join("");
+  return `<div class="cards">
+      ${tessera(perVerifica.size, perVerifica.size === 1 ? "verifica da preparare" : "verifiche da preparare")}
+      ${tessera(daFareOggi.length, "passi da fare oggi", daFareOggi.length ? "" : "ok")}
+      ${tessera(daFareOggi.reduce((t, s) => t + s.min, 0) + " min", "di studio oggi, circa")}
+    </div>
+    <h2>Oggi</h2>${oggi.length ? `<div class="box">${listaPassi(oggi, true)}</div>` : '<div class="box"><div class="empty">Oggi niente studio in programma.</div></div>'}
+    <h2>Verifica per verifica</h2><div class="piano">${schede}</div>
+    <p class="note">Ogni verifica ha 4 passi brevi nei giorni prima: mappa degli argomenti, poche righe scritte a libro chiuso, domande senza guardare, ripasso degli errori.
+      Scrivere poco e senza il libro aperto ti obbliga a capire invece di ricopiare. Le spunte si sincronizzano con il telefono come quelle dei compiti.</p>`;
+}
+
+/* ---------- oggi ---------- */
+
+// Il primo giorno dopo oggi in cui c'è lezione (dall'orario), altrimenti domani saltando la domenica.
+function prossimoGiornoDiScuola() {
+  const date = [...new Set(lezioniOrario().filter((l) => l.data > D.oggi && l.stato !== "annullata").map((l) => l.data))].sort();
+  if (date.length) return date[0];
+  let g = spostaGiorni(D.oggi, 1);
+  if (giorno(g).getDay() === 0) g = spostaGiorni(g, 1);
+  return g;
+}
+
+function dettagliLezione(l) {
+  return esc([l.aule.length ? "aula " + l.aule.join(", ") : "", l.docenti.join(", ")].filter(Boolean).join(" · "));
+}
+
+function riquadroAdesso(lezioni) {
+  const adesso = oraDi(new Date());
+  const valide = lezioni.filter((l) => l.stato !== "annullata");
+  const ora = valide.find((l) => l.inizio <= adesso && adesso < l.fine);
+  const dopo = valide.find((l) => l.inizio > adesso && (!ora || l.inizio >= ora.fine));
+  const tra = (hhmm) => { const n = minuti(hhmm) - minuti(adesso); return n < 60 ? `tra ${n} min` : `tra ${Math.floor(n / 60)} h ${n % 60 ? (n % 60) + " min" : ""}`.trim(); };
+  let corpo;
+  if (ora) {
+    const fatto = Math.round(((minuti(adesso) - minuti(ora.inizio)) / Math.max(1, minuti(ora.fine) - minuti(ora.inizio))) * 100);
+    corpo = `<span class="etichetta">Adesso</span><span class="grande">${grande(ora.materia)}</span>
+      <span class="muted">fino alle ${ora.fine}${dettagliLezione(ora) ? " · " + dettagliLezione(ora) : ""}</span>
+      <div class="progresso"><i style="width:${fatto}%"></i></div>
+      ${dopo ? `<div class="poi"><span class="etichetta">Dopo</span> <strong>${esc(dopo.materia)}</strong> <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span></div>` : '<div class="poi muted">È l\'ultima ora di oggi.</div>'}`;
+  } else if (dopo) {
+    corpo = `<span class="etichetta">Prossima lezione · ${tra(dopo.inizio)}</span><span class="grande">${grande(dopo.materia)}</span>
+      <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span>`;
+  } else {
+    const prossimo = prossimoGiornoDiScuola();
+    const primo = lezioniOrario().filter((l) => l.data === prossimo && l.stato !== "annullata").sort((a, b) => (a.inizio < b.inizio ? -1 : 1))[0];
+    corpo = `<span class="etichetta">${valide.length ? "Lezioni finite per oggi" : "Oggi niente lezioni"}</span>
+      <span class="grande">${primo ? `${giorniDa(prossimo) === 1 ? "Domani" : dataLunga(prossimo).replace(/^./, (c) => c.toUpperCase())} si entra alle ${primo.inizio}` : "Goditi la pausa"}</span>
+      ${primo ? `<span class="muted">prima ora: ${esc(primo.materia)}${dettagliLezione(primo) ? " · " + dettagliLezione(primo) : ""}</span>` : ""}`;
+  }
+  return `<div class="box pad adesso"><div class="adesso-testo">${corpo}</div>${anelloGiornata(lezioni)}</div>`;
+}
+
+// La giornata come un anello di puntini: sei per ogni ora di lezione, accesi man mano che il tempo passa.
+// Il puntino dell'istante attuale è rosso (e lampeggia); un'ora annullata resta vuota.
+function anelloGiornata(lezioni) {
+  const ore = [...new Map(lezioni.map((l) => [l.inizio, l])).values()];
+  if (!ore.length) return "";
+  const adesso = minuti(oraDi(new Date())), PER = 6, POSTI = ore.length * (PER + 1), R = 52, C = 60;
+  let punti = "", centro;
+  ore.forEach((l, i) => {
+    const a = minuti(l.inizio), b = minuti(l.fine);
+    const annullata = lezioni.filter((x) => x.inizio === l.inizio).every((x) => x.stato === "annullata");
+    const accesi = adesso >= b ? PER : adesso <= a ? 0 : Math.floor(((adesso - a) / Math.max(1, b - a)) * PER);
+    const inCorso = !annullata && adesso >= a && adesso < b;
+    if (inCorso) centro = `<b>${i + 1}ª ora</b><span>${b - adesso}' alla fine</span>`;
+    for (let k = 0; k < PER; k++) {
+      const angolo = -Math.PI / 2 + ((i * (PER + 1) + k + 0.5) / POSTI) * 2 * Math.PI;
+      const classe = annullata ? "vuoto" : inCorso && k === accesi ? "ora" : k < accesi ? "acceso" : "spento";
+      punti += `<circle class="${classe}" cx="${(C + R * Math.cos(angolo)).toFixed(1)}" cy="${(C + R * Math.sin(angolo)).toFixed(1)}" r="3.4"/>`;
+    }
+  });
+  if (!centro) centro = adesso < minuti(ore[0].inizio) ? `<b>${ore.length} ore</b><span>dalle ${ore[0].inizio}</span>` : `<b>Finito</b><span>${ore.length} ore fatte</span>`;
+  return `<div class="anello" role="img" aria-label="Avanzamento della giornata"><svg viewBox="0 0 120 120" aria-hidden="true">${punti}</svg><div class="anello-centro">${centro}</div></div>`;
+}
+
+function giornata(lezioni) {
+  const adesso = oraDi(new Date());
+  return `<div class="box"><ul class="giornata">${lezioni.map((l) => {
+    const classe = [l.fine <= adesso ? "passata" : l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata" ? "ora" : "", l.stato === "annullata" ? "annullata" : ""].join(" ");
+    return `<li class="${classe}"><span class="ore">${l.inizio}–${l.fine}</span><div><strong>${esc(l.materia)}</strong>
+      ${l.variazione ? ` <span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}</span>` : ""}
+      <div class="muted">${dettagliLezione(l)}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div></li>`;
+  }).join("")}</ul></div>`;
+}
+
+function schedaOggi() {
+  const lezioni = lezioniOrario().filter((l) => l.data === D.oggi).sort((a, b) => (a.inizio < b.inizio ? -1 : a.inizio > b.inizio ? 1 : 0));
+  const prossimo = prossimoGiornoDiScuola();
+  const perOggi = D.compiti.filter((c) => c.consegna === D.oggi && !fatti.has(c.id));
+  const perProssimo = D.compiti.filter((c) => c.consegna === prossimo);
+  const studio = pianoStudio().filter((s) => s.giorno === D.oggi);
+  const verifiche = verificheFuture().filter((p) => giorniDa(p.data) <= 7);
+  const nuoviVoti = D.voti.filter((v) => giorniDa(v.data) >= -3).sort((a, b) => (a.data < b.data ? 1 : -1));
+  const d = giorno(D.oggi);
+  const titoloProssimo = giorniDa(prossimo) === 1 ? "Per domani" : `Per ${dataLunga(prossimo)}`;
+  return `<p class="oggi-data">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI_LUNGHI[d.getMonth()]}</p>
+    ${D.orario ? riquadroAdesso(lezioni) : ""}
+    ${lezioni.length ? `<h2>Orario di oggi</h2>${giornata(lezioni)}` : ""}
+    ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
+    <h2>${titoloProssimo}</h2>${listaCompiti(perProssimo, "Niente da consegnare.")}
+    ${studio.length ? `<h2>Da studiare oggi</h2><div class="box">${listaPassi(studio, true)}</div>` : ""}
+    <h2>Verifiche nei prossimi 7 giorni</h2>${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => `<li class="${giorniDa(p.data) <= 1 ? "critico" : "attenzione"}">
+      <span class="icona conto" aria-hidden="true">${giorniDa(p.data)}</span>
+      <div>${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia)}</strong> <span class="muted">· ${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${quando(p.data)}</span><div class="muted">${esc(p.testo)}</div></div></li>`).join("")}</ul></div>`
+      : '<div class="box"><div class="empty">Nessuna verifica in vista.</div></div>'}
+    ${nuoviVoti.length ? `<h2>Voti degli ultimi giorni</h2><div class="cards" style="margin-top:0">${nuoviVoti.map((v) => tessera(esc(v.codice), `${puntoNuovo(nuovo("voti", chiaveVoto(v)))}${esc(v.materia)} · ${dataBreve(v.data)}`, v.valore < D.sufficienza ? "bad" : "ok")).join("")}</div>` : ""}`;
+}
+
+/* ---------- ricerca nei compiti ---------- */
+
+function evidenzia(testo, termini) {
+  const car = [...String(testo ?? "")];
+  const norm = car.map((c) => piega(c)[0] || c).join("");
+  const segnati = new Array(car.length).fill(false);
+  termini.forEach((t) => { for (let i = norm.indexOf(t); i >= 0; i = norm.indexOf(t, i + 1)) segnati.fill(true, i, i + t.length); });
+  let html = "";
+  car.forEach((c, i) => {
+    if (segnati[i] && !segnati[i - 1]) html += "<mark>";
+    html += esc(c);
+    if (segnati[i] && !segnati[i + 1]) html += "</mark>";
+  });
+  return html;
+}
+
+function risultatiRicerca() {
+  const termini = piega(ricerca).split(/\s+/).filter(Boolean);
+  if (!termini.length) return "";
+  const tutti = (D.compiti_anno && D.compiti_anno.length ? D.compiti_anno : D.compiti)
+    .filter((c) => { const t = piega(`${c.materia} ${c.testo} ${c.docente}`); return termini.every((x) => t.includes(x)); })
+    .sort((a, b) => (a.consegna < b.consegna ? 1 : a.consegna > b.consegna ? -1 : 0));
+  const MAX = 80;
+  if (!tutti.length) return `<div class="box"><div class="empty">Nessun compito contiene «${esc(ricerca.trim())}».</div></div>`;
+  return `<p class="sub" style="margin:0 0 8px">${plurale(tutti.length, "compito trovato", "compiti trovati")}${tutti.length > MAX ? `, mostro i ${MAX} più recenti` : ""}</p>
+    <div class="box"><ul class="todo">${tutti.slice(0, MAX).map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label>
+      <input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+      <span><span class="muted quando-ricerca">${dataLunga(c.consegna)} · ${quando(c.consegna)}</span><strong>${evidenzia(c.materia, termini)}</strong> — ${evidenzia(c.testo, termini)}</span></label></li>`).join("")}</ul></div>`;
+}
+
+function aggiornaRicerca() {
+  const risultati = $("#risultati-ricerca"), normali = $("#compiti-normali");
+  if (!risultati || !normali) return;
+  risultati.innerHTML = risultatiRicerca();
+  normali.hidden = Boolean(ricerca.trim());
+}
+
+/* ---------- testo per Google Calendar ---------- */
+
+const chiaveCalendario = () => `calendario-${(P && P.attivo) || ""}`;
+function giaCopiati() { try { return new Set(JSON.parse(localStorage.getItem(chiaveCalendario()) || "[]")); } catch { return new Set(); } }
+
+const calOpz = { verifiche: true, compiti: true, studio: false, nuovi: true };
+let calendarioAperto = false;
+let vociMostrate = []; // le voci che sono ora nel riquadro di testo
+
+// Le voci da mettere in calendario: [chiave, data, riga di testo], in ordine di data.
+function vociCalendario() {
+  const voci = [];
+  if (calOpz.verifiche) verificheFuture().forEach((p) => {
+    const aula = aulaPromemoria(p);
+    voci.push([`v|${p.data}|${p.materia}|${p.testo}`, p.data, `- Verifica di ${p.materia || "?"} — ${dataCompleta(p.data)}${p.orario ? ", " + p.orario : " (tutto il giorno)"}${aula ? ", " + aula.replace(/^Aula/, "aula") : ""}. Dettagli: ${p.testo}`]);
+  });
+  if (calOpz.compiti) D.compiti.filter((c) => giorniDa(c.consegna) >= 0 && !fatti.has(c.id)).forEach((c) => {
+    voci.push([`c|${c.id}`, c.consegna, `- Compito di ${c.materia} — da consegnare ${dataCompleta(c.consegna)} (tutto il giorno): ${c.testo}`]);
+  });
+  if (calOpz.studio) pianoStudio().filter((s) => !fatti.has(s.id)).forEach((s) => {
+    voci.push([`s|${s.id}`, s.giorno, `- Studio ${s.verifica.materia}: ${s.titolo} (${s.min} min) — ${dataCompleta(s.giorno)}, nel pomeriggio. ${s.testo}`]);
+  });
+  const solo = calOpz.nuovi ? giaCopiati() : new Set();
+  return voci.filter(([k]) => !solo.has(k)).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
+}
+
+function testoCalendario(voci) {
+  if (!voci.length) return "Niente di nuovo da aggiungere al calendario.";
+  return `Aggiungi al mio Google Calendar questi impegni di scuola. Crea un evento per ogni riga: se c'è un orario usalo, altrimenti fai un evento di tutto il giorno. Metti la materia nel titolo e il resto nella descrizione.\n\n${voci.map((v) => v[2]).join("\n")}`;
+}
+
+function riquadroCalendario() {
+  vociMostrate = vociCalendario();
+  const opzione = (k, nome) => `<label><input type="checkbox" data-cal="${k}" ${calOpz[k] ? "checked" : ""}> ${nome}</label>`;
+  return `<details class="box pad calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Testo per Google Calendar</summary>
+    <p class="note">Copia il testo e incollalo nell'assistente di Google Calendar (o in Gemini): crea lui gli eventi. Con «Solo le novità» non ti ritrovi doppioni.</p>
+    <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("studio", "Piano di studio")}${opzione("nuovi", "Solo le novità")}</div>
+    <textarea id="cal-testo" readonly aria-label="Testo per il calendario">${esc(testoCalendario(vociMostrate))}</textarea>
+    <div class="segmenti" style="margin-top:10px"><button type="button" class="btn small" id="cal-copia">Copia</button>
+      <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></details>`;
+}
+
+function aggiornaCalendario() {
+  vociMostrate = vociCalendario();
+  if ($("#cal-testo")) $("#cal-testo").value = testoCalendario(vociMostrate);
+}
+
+async function copiaCalendario() {
+  const area = $("#cal-testo");
+  if (!vociMostrate.length) { avviso("Niente di nuovo da copiare: togli «Solo le novità» per ricopiare tutto."); return; }
+  try { await navigator.clipboard.writeText(area.value); } catch { area.select(); document.execCommand("copy"); }
+  // Il testo resta nel riquadro (se l'incolla non riesce si ricopia), ma la prossima volta queste voci non ricompaiono.
+  try { localStorage.setItem(chiaveCalendario(), JSON.stringify([...new Set([...giaCopiati(), ...vociMostrate.map((v) => v[0])])].slice(-500))); } catch {}
+  const b = $("#cal-copia");
+  b.textContent = "Copiato ✓";
+  setTimeout(() => { if ($("#cal-copia")) $("#cal-copia").textContent = "Copia"; }, 2000);
+}
+
+const CONTENUTO = { oggi: schedaOggi, agenda: schedaAgenda, compiti: schedaCompiti, studio: schedaStudio, orario: schedaOrario, voti: schedaVoti, carico: schedaCarico, assenze: schedaAssenze };
+
+/* ---------- disegno e interazione ---------- */
+
+function mostra() {
+  document.querySelectorAll(".tabs button").forEach((b) => b.setAttribute("aria-selected", b.dataset.tab === scheda));
+  SCHEDE.forEach((s) => { $(`#tab-${s}`).hidden = s !== scheda; });
+  if (!D || D.vuoto) return;
+  contatoriSchede();
+  if ($("#ultra-zero")) $("#ultra-zero").textContent = sloganUltra(); // una spunta può azzerare gli arretrati
+  const attivo = document.activeElement, chiave = attivo && (attivo.dataset.id ? `[data-id="${attivo.dataset.id}"]` : attivo.id ? `#${attivo.id}` : "");
+  const pannello = $(`#tab-${scheda}`);
+  daDisegnare = [];
+  const scartate = Object.values(D.scartate || {}).reduce((a, b) => a + b, 0);
+  pannello.innerHTML = CONTENUTO[scheda]() + (scartate ? `<p class="note">${plurale(scartate, "voce del registro aveva", "voci del registro avevano")} un formato inatteso e non ${scartate === 1 ? "è stata considerata" : "sono state considerate"}.</p>` : "");
+  disegna(pannello);
+  pannello.querySelectorAll("[data-ultimo]").forEach((el) => { el.scrollLeft = el.scrollWidth; }); // la mappa parte dai giorni più recenti
+  if (chiave && pannello.querySelector(chiave)) pannello.querySelector(chiave).focus();
+}
+
+function applica(dati) {
+  D = dati;
+  fatti = new Set(Object.keys(dati.stato.fatti));
+  if (D.vuoto) {
+    impostaTitolo(D.profilo ? D.profilo.nome : "Registro");
+    $("#aggiornato").textContent = "Nessun dato ancora scaricato.";
+    SCHEDE.forEach((s) => { $(`#tab-${s}`).innerHTML = ""; });
+    return;
+  }
+  caricaVisti();
+  impostaTitolo("Registro", D.studente ? "di " + D.studente : "");
+  const t = new Date(D.scaricato);
+  $("#aggiornato").textContent = `${D.classe ? "Classe " + D.classe + " · " : ""}aggiornato ${quando(D.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(D.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
+  mostra();
+}
+
+const datiVecchi = () => !D || D.vuoto || (Date.now() - new Date(D.scaricato)) / 60000 > MINUTI_VALIDITA;
+
+async function aggiorna() {
+  const bottone = $("#aggiorna");
+  if (bottone.disabled) return; // un aggiornamento è già in corso
+  bottone.disabled = true;
+  // Col tema «Nothing» al posto della scritta tre puntini fanno da scanner (style.css); il testo resta per i lettori di schermo.
+  bottone.innerHTML = '<span class="scan" aria-hidden="true"><i></i><i></i><i></i></span><span class="testo-scan">Aggiorno…</span>';
+  $("#apri-profili").disabled = true; // niente cambio di profilo a metà download
+  const profilo = P && P.attivo;
+  try {
+    const dati = await api("/api/aggiorna", {});
+    if (P && P.attivo === profilo) { applica(dati); avviso(dati.avviso || ""); }
+  } catch (errore) {
+    avviso(`Aggiornamento non riuscito: ${errore.message}${D && !D.vuoto ? " Stai vedendo gli ultimi dati salvati." : ""}`, true);
+  }
+  bottone.disabled = false;
+  $("#apri-profili").disabled = false;
+  bottone.textContent = "Aggiorna";
+  sincronizza();
+}
+
+/* ---------- profili ---------- */
+
+let P = null; // {profili, attivo, ultimo, registri, android, versione}
+let S = null; // stato della sincronizzazione PC ↔ telefono; null = non disponibile
+let panoramica = null; // carte della panoramica; null = si vede l'elenco dei profili
+let modulo = null; // profilo in creazione o modifica; null = elenco dei profili
+let scuoleTrovate = null;
+
+function schermo(profili) {
+  $("#profili").hidden = !profili;
+  $("#app").hidden = profili;
+  $("#aggiorna").hidden = profili;
+  $("#apri-profili").hidden = profili || !P;
+  if (profili) {
+    impostaTitolo("Registro");
+    $("#aggiornato").textContent = P && P.profili.length ? "Scegli con quale profilo entrare." : "Per iniziare crea il tuo profilo.";
+    disegnaProfili();
+  }
+}
+
+function nuovoModulo(profilo) {
+  const u = (profilo && profilo.untis) || {};
+  scuoleTrovate = null;
+  return { id: profilo ? profilo.id : null, registro: profilo ? profilo.registro : "", nome: profilo ? profilo.nome : "", scuola: profilo ? profilo.scuola : "",
+    utente: profilo ? profilo.utente : "", password: "", untisServer: u.server || "", untisScuola: u.scuola || "", untisClasse: u.classe || "", cerca: "" };
+}
+
+// Copia nel modulo ciò che è stato scritto finora, così ridisegnare la pagina non cancella nulla.
+function leggiModulo() {
+  const f = $("#modulo-profilo");
+  if (!f || !modulo) return;
+  ["nome", "scuola", "utente", "password", "untisClasse", "cerca"].forEach((c) => { if (f.elements[c]) modulo[c] = f.elements[c].value; });
+  const scelto = f.querySelector('input[name="registro"]:checked');
+  if (scelto) modulo.registro = scelto.value;
+}
+
+const interruttoreVista = () => `<div class="segmenti" style="margin-top:16px"><button type="button" class="btn small${panoramica ? " ghost" : ""}" data-vista="profili">Profili</button>
+  <button type="button" class="btn small${panoramica ? "" : " ghost"}" data-vista="panoramica">Panoramica</button></div>`;
+
+function vistaPanoramica() {
+  const carta = (c) => {
+    if (c.vuoto) return `<div class="profilo"><span class="tag">${esc(P.registri[c.registro] || c.registro)}</span><h3>${esc(c.nome)}</h3>
+      <p class="muted">Nessun dato ancora scaricato.</p><button type="button" class="btn small" data-entra="${c.id}">Apri</button></div>`;
+    const oggi = new Date().toISOString().slice(0, 10), t = new Date(c.scaricato);
+    const elenco = (titolo, voci, riga) => voci.length ? `<p><strong>${titolo}</strong></p><ul>${voci.map((v) => `<li>${riga(v)}</li>`).join("")}</ul>` : "";
+    const quandoIso = (iso) => { const n = Math.round((giorno(iso) - giorno(oggi)) / 864e5); return n === 0 ? "oggi" : n === 1 ? "domani" : dataBreve(iso); };
+    return `<div class="profilo"><span class="tag">${esc(c.classe || (P.registri[c.registro] || ""))}</span>
+      <h3>${esc(c.studente || c.nome)}</h3>
+      <p>Media generale: <strong>${media(c.media_generale)}</strong>${c.insufficienti.length ? ` <span class="tag bad">${plurale(c.insufficienti.length, "insufficienza", "insufficienze")}</span>` : ""}</p>
+      ${c.insufficienti.length ? `<p class="muted">${c.insufficienti.map((i) => `${esc(i.materia)} ${media(i.media)}`).join(" · ")}</p>` : ""}
+      ${elenco("Verifiche in arrivo", c.verifiche, (v) => `${quandoIso(v.data)} · ${esc(v.materia)}`)}
+      ${elenco("Compiti da fare", c.compiti, (v) => `${quandoIso(v.consegna)} · ${esc(v.materia)}`)}
+      ${elenco("Ultimi voti", c.ultimi_voti, (v) => `${num(v.valore)} · ${esc(v.materia)} <span class="muted">(${dataBreve(v.data)})</span>`)}
+      <p class="muted">Aggiornato ${dataBreve(c.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}</p>
+      <button type="button" class="btn small" data-entra="${c.id}">Apri il registro</button></div>`;
+  };
+  return `${interruttoreVista()}<div class="profili">${panoramica.map(carta).join("")}</div>`;
+}
+
+async function mostraVista(nome) {
+  try {
+    panoramica = nome === "panoramica" ? (await api("/api/panoramica")).profili : null;
+    try { localStorage.setItem("vista", nome); } catch {}
+  } catch (errore) { avviso(errore.message, true); }
+  disegnaProfili();
+}
+
+/* ---------- sincronizzazione PC ↔ telefono ---------- */
+
+const oraBreve = (iso) => { const t = new Date(iso); return `${dataBreve(iso)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`; };
+
+function riquadroSync() {
+  if (!S || !S.disponibile) return "";
+  const ultima = S.ultima ? `Ultima sincronizzazione: ${oraBreve(S.ultima)}.` : "Non ancora sincronizzato.";
+  let corpo;
+  if (S.ruolo === "pc") {
+    corpo = S.attiva
+      ? `<p>Codice di abbinamento: <strong class="codice">${esc(S.codice)}</strong></p>
+        <p class="muted">Scrivilo una volta nell'app sul telefono. Da lì in poi i due si allineano da soli quando sono sullo stesso Wi‑Fi e questa app è aperta.</p>
+        <p class="muted">${S.in_ascolto ? ultima : "Per iniziare ad ascoltare il telefono chiudi e riapri l'app."}${S.indirizzo ? ` Indirizzo di questo PC: <strong>${esc(S.indirizzo)}</strong>.` : ""}</p>
+        <p class="note">Chi conosce il codice e si trova sulla tua rete può leggere i tuoi dati: non condividerlo. Se Windows chiede il permesso per Python, consentilo sulle reti private.</p>
+        <div class="segmenti"><button type="button" class="btn ghost small" data-sync="disattiva">Disattiva</button></div>`
+      : `<p class="muted">Tiene uguali profili, password, dati scaricati e compiti spuntati tra questo PC e l'app Android, quando sono sullo stesso Wi‑Fi. Niente passa da Internet.</p>
+        <div class="segmenti"><button type="button" class="btn small" data-sync="attiva">Attiva</button></div>`;
+  } else {
+    corpo = S.attiva
+      ? `<p>${esc(S.esito || ultima)}</p><p class="muted">${ultima}${S.pc ? ` PC: ${esc(S.pc)}.` : ""}</p>
+        <div class="segmenti"><button type="button" class="btn small" data-sync="ora">Sincronizza ora</button>
+          <button type="button" class="btn ghost small" data-sync="disattiva">Scollega</button></div>`
+      : `<p class="muted">Porta qui profili, password, dati e compiti spuntati del PC, e li tiene uguali quando siete sullo stesso Wi‑Fi. Sul PC apri Profili → Sincronizzazione → Attiva e copia qui il codice.</p>
+        <label>Codice di abbinamento<input id="sync-codice" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCDE-FGHIJ-KLMNO-PQRST"></label>
+        <label>Indirizzo del PC (facoltativo: serve solo se non viene trovato da solo)<input id="sync-indirizzo" inputmode="decimal" autocomplete="off" placeholder="Es. 192.168.1.20"></label>
+        <div class="segmenti"><button type="button" class="btn small" data-sync="abbina">Abbina e sincronizza</button></div>`;
+  }
+  return `<div class="box pad modulo"><h2>Sincronizzazione con ${S.ruolo === "pc" ? "il telefono" : "il PC"}</h2>${corpo}</div>`;
+}
+
+// Rilegge tutto dal server dopo che una sincronizzazione ha cambiato i dati.
+async function ricarica() {
+  P = await api("/api/profili");
+  if (!$("#app").hidden) {
+    if (P.attivo) return applica(await api("/api/dati"));
+    D = null; modulo = null; panoramica = null; // il profilo aperto è stato eliminato dall'altro dispositivo
+    return schermo(true);
+  }
+  if (panoramica) panoramica = (await api("/api/panoramica")).profili;
+  leggiModulo();
+  if (modulo && !modulo.id && !modulo.nome && !modulo.utente && P.profili.length) modulo = null; // il modulo vuoto del primo avvio non serve più
+  disegnaProfili();
+}
+
+function ridisegnaSync() {
+  if ($("#profili").hidden) return;
+  // Chi sta scrivendo il codice non deve vederselo cancellare da un ridisegno.
+  if (document.activeElement && ["sync-codice", "sync-indirizzo"].includes(document.activeElement.id)) return;
+  leggiModulo();
+  disegnaProfili();
+}
+
+// Il telefono cerca il PC e scambia i dati; se il PC non c'è non succede nulla.
+async function sincronizza() {
+  if (!P || !P.android || !S || !S.attiva) return;
+  try {
+    S = await api("/api/sincronizzazione", { azione: "ora" });
+    if (S.cambiato) await ricarica(); else ridisegnaSync();
+  } catch {}
+}
+
+// Il PC si accorge che il telefono ha portato novità.
+async function controllaSync() {
+  if (!P || P.android || !S || !S.attiva || document.hidden) return;
+  try {
+    const nuovo = await api("/api/sincronizzazione"), cambiato = nuovo.revisione !== S.revisione, diverso = nuovo.ultima !== S.ultima;
+    S = nuovo;
+    if (cambiato) await ricarica(); else if (diverso) ridisegnaSync();
+  } catch {}
+}
+
+async function comandoSync(azione) {
+  const corpo = { azione };
+  if (azione === "abbina") { corpo.codice = $("#sync-codice").value; corpo.indirizzo = $("#sync-indirizzo").value; }
+  if (azione === "disattiva" && !confirm(S.ruolo === "pc" ? "Disattivare la sincronizzazione? Il telefono andrà abbinato di nuovo, con un altro codice." : "Scollegare questo telefono dal PC? I dati già arrivati restano.")) return;
+  const bottone = document.querySelector(`[data-sync="${azione}"]`);
+  if (bottone) { bottone.disabled = true; if (azione !== "disattiva") bottone.textContent = azione === "attiva" ? "Attivo…" : "Cerco il PC…"; }
+  try {
+    S = await api("/api/sincronizzazione", corpo);
+    avviso(S.trovato === false || S.errore ? S.esito : "", true);
+    if (S.cambiato) await ricarica(); else { leggiModulo(); disegnaProfili(); }
+  } catch (errore) {
+    avviso(errore.message, true);
+    if (bottone) { bottone.disabled = false; bottone.textContent = { attiva: "Attiva", abbina: "Abbina e sincronizza", ora: "Sincronizza ora" }[azione] || bottone.textContent; }
+  }
+}
+
+function disegnaProfili() {
+  const el = $("#profili");
+  if (!P) { el.innerHTML = ""; return; }
+  if (!modulo && !P.profili.length) modulo = nuovoModulo(null);
+  $("#aggiornato").textContent = modulo ? (P.profili.length ? "Compila i dati del profilo." : "Per iniziare crea il tuo profilo.") : "Scegli con quale profilo entrare.";
+  if (!modulo && panoramica) { el.innerHTML = vistaPanoramica(); return; }
+  if (!modulo) {
+    el.innerHTML = `${P.profili.length > 1 ? interruttoreVista() : ""}<div class="profili">${P.profili.map((p) => `<div class="profilo">
+        <span class="tag">${esc(P.registri[p.registro] || p.registro)}</span>
+        <h3>${esc(p.nome)}</h3>
+        <p class="muted">${esc(p.utente)}${p.untis ? ` · orario ${esc(p.untis.classe)}` : ""}</p>
+        <div class="segmenti"><button type="button" class="btn small" data-entra="${p.id}">Entra</button>
+          <button type="button" class="btn ghost small" data-modifica="${p.id}">Modifica</button>
+          <button type="button" class="btn ghost small" data-elimina="${p.id}">Elimina</button></div></div>`).join("")}
+      <button type="button" class="profilo nuovo" data-nuovo="1">+ Nuovo profilo</button></div>${riquadroSync()}${firma()}`;
+    return;
+  }
+  const m = modulo, registro = (valore, nome, nota) => `<label class="scelta${m.registro === valore ? " attiva" : ""}"><input type="radio" name="registro" value="${valore}" ${m.registro === valore ? "checked" : ""} required>
+    <span><strong>${nome}</strong><small>${nota}</small></span></label>`;
+  const campo = (nome, etichetta, extra = "") => `<label>${etichetta}<input name="${nome}" value="${esc(m[nome])}" ${extra}></label>`;
+  el.innerHTML = `<form id="modulo-profilo" class="box pad modulo" autocomplete="off">
+      <h2>${m.id ? "Modifica profilo" : "Nuovo profilo"}</h2>
+      <fieldset><legend>1. Che registro usa la tua scuola?</legend>
+        <div class="scelte">${registro("argo", "Argo didUP", "portaleargo.it")}${registro("nuvola", "Nuvola", "nuvola.madisoft.it · studenti e tutori")}${registro("classeviva", "ClasseViva", "Spaggiari · sperimentale")}</div></fieldset>
+      <fieldset><legend>2. Dati di accesso al registro</legend>
+        ${campo("nome", "Nome del profilo", 'required maxlength="40" placeholder="Es. Mario"')}
+        ${m.registro === "argo" ? campo("scuola", "Codice scuola", 'required placeholder="Lo stesso che scrivi su didUP"') : ""}
+        ${campo("utente", "Nome utente", m.registro === "classeviva" ? 'required placeholder="Codice tipo S1234567X oppure email"' : "required")}
+        <label>Password<input name="password" type="password" value="${esc(m.password)}" ${m.id ? 'placeholder="Lascia vuoto per non cambiarla"' : "required"} autocomplete="new-password"></label>
+        ${m.registro === "classeviva" ? '<p class="note">ClasseViva è appena arrivato e non è ancora stato provato su molti account: se qualcosa non torna, segnalalo nelle issue del progetto su GitHub.</p>' : ""}
+        <p class="note">${P.android ? "Tutto resta su questo telefono: la password è cifrata e viene inviata solo al registro scelto, a nessun altro server." : "Tutto resta su questo computer: la password sta nel portachiavi del sistema (su Windows il Gestione credenziali) e viene inviata solo al registro scelto, a nessun altro server."}</p></fieldset>
+      <fieldset><legend>3. Orario WebUntis <span class="muted">(facoltativo)</span></legend>
+        ${m.untisServer ? `<p>Scuola: <strong>${esc(m.untisScuola)}</strong> <span class="muted">(${esc(m.untisServer)})</span> <button type="button" class="btn ghost small" data-togli-untis="1">Togli</button></p>
+          ${campo("untisClasse", "Classe, come compare su WebUntis", 'placeholder="Es. 3A"')}`
+        : `<div class="riga">${campo("cerca", "Cerca la scuola per nome", 'placeholder="Almeno 3 lettere"')}<button type="button" class="btn ghost" id="cerca-untis">Cerca</button></div>
+          ${scuoleTrovate === null ? "" : scuoleTrovate.length ? `<ul class="scuole">${scuoleTrovate.map((s, i) => `<li><button type="button" data-scuola-untis="${i}"><strong>${esc(s.nome)}</strong><span class="muted">${esc(s.indirizzo || "")}</span></button></li>`).join("")}</ul>`
+            : '<p class="muted">Nessuna scuola trovata (oppure troppe: scrivi un nome più preciso).</p>'}`}</fieldset>
+      <div class="segmenti"><button class="btn" type="submit">${m.id ? "Salva" : "Salva ed entra"}</button>
+        ${P.profili.length ? '<button class="btn ghost" type="button" id="annulla-profilo">Annulla</button>' : ""}</div>
+    </form>${P.profili.length ? "" : riquadroSync() + firma()}`;
+}
+
+async function entra(id) {
+  avviso("");
+  try {
+    P = await api("/api/profili/attiva", { id });
+    applica(await api("/api/dati"));
+  } catch (errore) {
+    avviso(errore.message, true);
+    return;
+  }
+  simulati = []; settimanaOrario = 0; materiaGrafico = "";
+  schermo(false);
+  mostra();
+  await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
+  if (P.attivo === id && datiVecchi()) aggiorna();
+}
+
+function firma() {
+  return `<p class="muted versione">Parser Compiti ${esc(P.versione || "")} · 100% locale: i dati restano su questo dispositivo.</p>`;
+}
+
+async function apriProfili() {
+  segnaVisti(scheda);
+  try { P = await api("/api/profili/attiva", { id: null }); } catch (errore) { avviso(errore.message, true); return; }
+  D = null; modulo = null; panoramica = null;
+  avviso("");
+  schermo(true);
+  if (P.profili.length > 1) { try { if (localStorage.getItem("vista") === "panoramica") await mostraVista("panoramica"); } catch {} }
+}
+
+async function salvaProfilo() {
+  leggiModulo();
+  const m = modulo, untis = m.untisServer ? { server: m.untisServer, scuola: m.untisScuola, classe: m.untisClasse } : null;
+  try {
+    const esito = await api("/api/profili", { id: m.id, profilo: { nome: m.nome, registro: m.registro, scuola: m.scuola, utente: m.utente, password: m.password, untis } });
+    P = esito; modulo = null; avviso("");
+    if (m.id) disegnaProfili(); else await entra(esito.salvato);
+  } catch (errore) {
+    avviso(errore.message, true);
+  }
+}
+
+async function eliminaProfilo(id) {
+  const p = P.profili.find((x) => x.id === id);
+  if (!p || !confirm(`Eliminare il profilo «${p.nome}»?\nVengono cancellati credenziali, dati scaricati e compiti spuntati di questo profilo.`)) return;
+  try { P = await api("/api/profili/elimina", { id }); disegnaProfili(); } catch (errore) { avviso(errore.message, true); }
+}
+
+async function cercaScuole() {
+  leggiModulo();
+  if (modulo.cerca.trim().length < 3) { avviso("Scrivi almeno 3 lettere del nome della scuola.", true); return; }
+  try {
+    scuoleTrovate = (await api("/api/untis/scuole?q=" + encodeURIComponent(modulo.cerca.trim()))).scuole;
+    avviso("");
+  } catch (errore) { avviso(errore.message, true); }
+  disegnaProfili();
+}
+
+document.addEventListener("submit", (e) => { if (e.target.id === "modulo-profilo") { e.preventDefault(); salvaProfilo(); } });
+document.addEventListener("keydown", (e) => { if (e.key === "Enter" && e.target.name === "cerca") { e.preventDefault(); cercaScuole(); } });
+
+let attesaSync;
+
+async function spunta(id, fatto) {
+  fatto ? fatti.add(id) : fatti.delete(id);
+  mostra();
+  try {
+    await api("/api/stato", { id, fatto });
+    clearTimeout(attesaSync);
+    attesaSync = setTimeout(sincronizza, 3000);
+  } catch (errore) {
+    fatto ? fatti.delete(id) : fatti.add(id);
+    mostra();
+    avviso(`Non sono riuscito a salvare la spunta: ${errore.message}`, true);
+  }
+}
+
+document.addEventListener("change", (e) => {
+  const el = e.target;
+  if (el.dataset.id) spunta(el.dataset.id, el.checked);
+  else if (el.id === "nascondi") { nascondiFatti = el.checked; mostra(); }
+  else if (el.id === "materia-grafico") { materiaGrafico = el.value; mostra(); }
+  else if (el.id === "sim-materia") { simMateria = el.value; mostra(); }
+  else if (el.name === "registro") { leggiModulo(); disegnaProfili(); }
+  else if (el.dataset.cal) { calOpz[el.dataset.cal] = el.checked; aggiornaCalendario(); }
+  else if (el.id === "tema") {
+    temaScelto = applicaTema(el.value);
+    try { localStorage.setItem("tema", temaScelto); } catch {}
+    impostaTitolo(...titoloAttuale);
+    if (!$("#app").hidden) mostra(); // le scritte a punti del tema «Nothing» vanno messe o tolte
+    comunicaTema();
+  }
+});
+
+document.addEventListener("input", (e) => {
+  if (e.target.id === "cerca-compiti") { ricerca = e.target.value; aggiornaRicerca(); }
+});
+document.addEventListener("toggle", (e) => { if (e.target.id === "calendario") calendarioAperto = e.target.open; }, true);
+
+document.addEventListener("click", (e) => {
+  const el = e.target.closest("button");
+  if (!el) return;
+  if (el.dataset.tab) {
+    if (el.dataset.tab !== scheda) segnaVisti(scheda); // le novità della scheda che lasci ora le hai viste
+    scheda = el.dataset.tab;
+    try { localStorage.setItem("scheda", scheda); } catch {}
+    mostra();
+  }
+  else if (el.id === "aggiorna") aggiorna();
+  else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; mostra(); }
+  else if (el.id === "sim-aggiungi") {
+    const voto = parseFloat($("#sim-voto").value.replace(",", "."));
+    if (voto >= 1 && voto <= 10) { simulati.push({ materia: simMateria, voto }); mostra(); }
+  }
+  else if (el.id === "sim-azzera") { simulati = []; mostra(); }
+  else if (el.dataset.togli) { simulati.splice(+el.dataset.togli, 1); mostra(); }
+  else if (el.id === "apri-profili") apriProfili();
+  else if (el.dataset.sync) comandoSync(el.dataset.sync);
+  else if (el.dataset.vista) mostraVista(el.dataset.vista);
+  else if (el.dataset.entra) entra(el.dataset.entra);
+  else if (el.dataset.nuovo) { modulo = nuovoModulo(null); avviso(""); disegnaProfili(); }
+  else if (el.dataset.modifica) { modulo = nuovoModulo(P.profili.find((p) => p.id === el.dataset.modifica)); avviso(""); disegnaProfili(); }
+  else if (el.dataset.elimina) eliminaProfilo(el.dataset.elimina);
+  else if (el.id === "annulla-profilo") { modulo = null; avviso(""); disegnaProfili(); }
+  else if (el.id === "cerca-untis") cercaScuole();
+  else if (el.id === "cal-copia") copiaCalendario();
+  else if (el.id === "cal-azzera") { try { localStorage.removeItem(chiaveCalendario()); } catch {} aggiornaCalendario(); }
+  else if (el.dataset.scuolaUntis) {
+    leggiModulo();
+    const s = scuoleTrovate[+el.dataset.scuolaUntis];
+    modulo.untisServer = s.server; modulo.untisScuola = s.scuola; scuoleTrovate = null;
+    disegnaProfili();
+  }
+  else if (el.dataset.togliUntis) { leggiModulo(); modulo.untisServer = modulo.untisScuola = modulo.untisClasse = ""; disegnaProfili(); }
+});
+
+const etichetta = $("#tip");
+document.addEventListener("mousemove", (e) => {
+  const el = e.target.closest ? e.target.closest("[data-tip]") : null;
+  if (!el) { etichetta.hidden = true; return; }
+  etichetta.innerHTML = el.dataset.tip;
+  etichetta.hidden = false;
+  const r = etichetta.getBoundingClientRect();
+  etichetta.style.left = Math.max(8, Math.min(window.innerWidth - r.width - 8, e.clientX + 14)) + "px";
+  etichetta.style.top = (e.clientY + 18 + r.height > window.innerHeight ? e.clientY - r.height - 10 : e.clientY + 18) + "px";
+});
+
+let ritardo;
+window.addEventListener("resize", () => { clearTimeout(ritardo); ritardo = setTimeout(mostra, 150); });
+
+// Sul telefono i widget si vestono come l'app (tema «Ultra»: lattina bianca; gli altri: stile Nothing).
+function comunicaTema() {
+  if (P && P.android) api("/api/tema", { tema: temaScelto }).catch(() => {});
+}
+
+// La scheda «Oggi» segue l'orologio: ogni minuto si ridisegna (lezione in corso, ore passate).
+setInterval(() => {
+  if (scheda === "oggi" && D && !D.vuoto && !document.hidden && !$("#app").hidden) mostra();
+}, 60000);
+
+(async function avvio() {
+  $("#tema").innerHTML = Object.entries(TEMI).map(([k, nome]) => `<option value="${k}"${k === temaScelto ? " selected" : ""}>${nome}</option>`).join("");
+  try { const salvata = localStorage.getItem("scheda"); if (SCHEDE.includes(salvata)) scheda = salvata; } catch {}
+  try {
+    P = await api("/api/profili");
+  } catch (errore) {
+    avviso(`Impossibile leggere i profili: ${errore.message}`, true);
+    return;
+  }
+  try { S = await api("/api/sincronizzazione"); } catch {}
+  comunicaTema(); // il tema può essere stato scelto prima che i widget lo sapessero leggere
+  // Con un solo profilo si entra direttamente; con più profili (o nessuno) si sceglie.
+  const unico = P.profili.length === 1 ? P.profili[0].id : null;
+  if (P.attivo || unico) await entra(P.attivo || unico);
+  else {
+    schermo(true);
+    try { if (P.profili.length > 1 && localStorage.getItem("vista") === "panoramica") await mostraVista("panoramica"); } catch {}
+    sincronizza();
+  }
+  setInterval(controllaSync, 20000);
+})();
+
+// Se la pagina resta aperta per ore o giorni, al ritorno i dati vengono riscaricati da soli.
+document.addEventListener("visibilitychange", async () => {
+  if (document.hidden) { segnaVisti(scheda); return; }
+  await sincronizza();
+  controllaSync();
+  if (D && P && P.attivo && datiVecchi()) aggiorna();
+});
