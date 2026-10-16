@@ -212,6 +212,9 @@ def assenze(eventi, lezioni):
         "percentuale": ore_perse / ore_svolte * 100 if ore_svolte else None,
         "limite_ore": round(limite),
         "ore_rimaste": round(limite) - ore_perse,
+        # Per la scheda: quanti giorni di scuola valgono le ore rimaste, e dove si arriva a fine anno a questo ritmo.
+        "ore_al_giorno": ore_svolte / len(ore_giorno) if ore_giorno else None,
+        "previsione": round(ore_perse / ore_svolte * config.ORE_SETTIMANALI * config.SETTIMANE_SCUOLA) if ore_svolte else None,
         "per_mese": [{"mese": m, "ore": o} for m, o in sorted(mesi.items())],
         "per_materia": [{"materia": m, "ore": o} for m, o in materie.most_common()],
     }
