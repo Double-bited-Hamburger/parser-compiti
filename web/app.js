@@ -13,6 +13,7 @@ let scheda = "oggi";
 let ricerca = ""; // testo cercato nella scheda Compiti
 let nascondiFatti = false;
 let settimanaOrario = 0;
+let oraOrario = null; // la casella scelta nella griglia dell'orario, «data|inizio» (null = l'ora in corso)
 let materiaGrafico = "";
 let simMateria = "";
 let simulati = []; // voti ipotetici: {materia, voto}
@@ -301,6 +302,34 @@ function listaVariazioni(lista) {
     <td><span class="tag">${esc(l.stato)}</span><div class="muted">${dettagliVariazione(l)}</div></td></tr>`).join("")}</tbody></table></div>`;
 }
 
+// La sigla di una materia per la griglia del telefono: «Lingua e letteratura italiana» → ITA, «Scienze motorie e sportive» → SMS.
+const PAROLE_VUOTE = new Set(["e", "ed", "di", "del", "della", "delle", "dei", "degli", "la", "le", "lo", "il", "i", "gli", "a", "al", "in", "per", "con", "lingua", "letteratura", "cultura"]);
+function sigla(materia) {
+  return String(materia).split("/").map((m) => {
+    m = m.replace(/\(.*?\)/g, " ").trim();
+    if (/^[A-Z]{2,5}$/.test(m)) return m;
+    const parole = m.split(/[\s'’.,-]+/).filter((w) => w && !PAROLE_VUOTE.has(w.toLowerCase()));
+    if (!parole.length) return m.slice(0, 3).toUpperCase();
+    return (parole.length === 1 ? parole[0].slice(0, 3) : parole.slice(0, 3).map((w) => w[0]).join("")).toUpperCase();
+  }).join("/");
+}
+// Un colore per materia: le materie dell'orario in ordine alfabetico prendono le tinte una dopo l'altra, così due materie
+// diverse non si somigliano; chiaro e scuro li decide il tema (style.css).
+const TINTE = [215, 25, 150, 275, 45, 190, 340, 100, 250, 5, 170, 305];
+function tintaMateria(materia) {
+  const tutte = [...new Set(lezioniOrario().map((l) => l.materia))].sort();
+  return TINTE[Math.max(0, tutte.indexOf(materia)) % TINTE.length];
+}
+
+function cartaVariazione(l) {
+  const grave = l.stato === "annullata";
+  const chi = [l.docenti.join(", "), l.aule.length ? "aula " + l.aule.join(", ") : ""].filter(Boolean).join(" · ");
+  return `<li class="${grave ? "grave" : ""}"><span class="cambio-ora">${l.inizio}</span><div>
+    <div class="cambio-testa"><strong>${esc(l.materia)}</strong><span class="tag${grave ? " bad" : ""}">${esc(l.stato)}</span>${l.nuova ? '<span class="tag pieno">nuova</span>' : ""}</div>
+    <div class="cambio-quando">${dataLunga(l.data).replace(/^./, (c) => c.toUpperCase())} · ${quando(l.data)}</div>
+    <div class="muted">${[grave ? "" : esc(chi), dettagliVariazione(l)].filter(Boolean).join(" · ")}</div></div></li>`;
+}
+
 function schedaOrario() {
   const o = D.orario;
   if (!o) return `<div class="box" style="margin-top:20px"><div class="empty">${D.profilo && !D.profilo.untis
@@ -311,13 +340,27 @@ function schedaOrario() {
   const s = o.settimane[settimanaOrario];
   const lezioni = o.lezioni.filter((l) => l.data >= s.inizio && l.data <= s.fine);
   const variazioni = lezioni.filter((l) => l.variazione);
+  const adesso = oraDi(new Date());
+  const passata = (l) => l.data < D.oggi || (l.data === D.oggi && l.fine <= adesso);
+  const inCorso = (l) => l.data === D.oggi && l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata";
+  // Senza una scelta si vedono i dettagli dell'ora in corso.
+  const scelta = oraOrario || (lezioni.find(inCorso) ? `${D.oggi}|${lezioni.find(inCorso).inizio}` : null);
   const cella = (g, inizio) => {
     const qui = lezioni.filter((l) => l.data === g && l.inizio === inizio);
-    if (!qui.length) return "<td></td>";
-    const classe = qui.some((l) => l.stato === "annullata") ? "annullata" : qui.some((l) => l.variazione) ? "variata" : "";
-    return `<td class="${classe}">${qui.map((l) => `<div class="lez"><strong>${esc(l.materia)}</strong>
-      <div class="muted">${esc([l.docenti.join(", "), l.aule.join(", ")].filter(Boolean).join(" · "))}</div>
-      ${l.variazione ? `<div><span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}${l.nuova ? " · nuova" : ""}</span></div><div class="muted">${dettagliVariazione(l)}</div>` : ""}</div>`).join("")}</td>`;
+    if (!qui.length) return '<div class="cella vuota"></div>';
+    const chiave = `${g}|${inizio}`, ann = qui.every((l) => l.stato === "annullata"), varia = qui.some((l) => l.variazione);
+    const classi = ["cella", passata(qui[0]) ? "passata" : "", qui.some(inCorso) ? "ora" : "", ann ? "annullata" : varia ? "variata" : "", chiave === scelta ? "scelta" : ""].filter(Boolean).join(" ");
+    const etichetta = `${dataLunga(g)}, ${inizio}: ${qui.map((l) => l.materia + (l.variazione ? ", " + l.stato : "")).join("; ")}`;
+    return `<button type="button" class="${classi}" style="--tinta:${tintaMateria(qui[0].materia)}" data-cella="${chiave}" aria-pressed="${chiave === scelta}" aria-label="${esc(etichetta)}">
+      <span class="sigla">${esc(qui.map((l) => sigla(l.materia)).join("/"))}</span><span class="nome-m">${esc(qui.map((l) => l.materia).join(" / "))}</span>
+      <span class="cella-sotto">${varia ? esc(qui.find((l) => l.variazione).stato) : esc(qui.flatMap((l) => l.aule).join(", "))}</span>${varia ? '<i class="pallino" aria-hidden="true"></i>' : ""}</button>`;
+  };
+  const dettaglio = () => {
+    const qui = scelta ? lezioni.filter((l) => `${l.data}|${l.inizio}` === scelta) : [];
+    if (!qui.length) return '<p class="cella-dettaglio vuoto muted">Tocca un\'ora per vedere aula, docente e variazioni.</p>';
+    return qui.map((l) => `<div class="cella-dettaglio" style="--tinta:${tintaMateria(l.materia)}"><div>
+      <strong>${esc(l.materia)}</strong>${inCorso(l) ? ' <span class="tag accento">adesso</span>' : ""}${l.variazione ? ` <span class="tag${l.stato === "annullata" || l.nuova ? " bad" : ""}">${esc(l.stato)}</span>` : ""}
+      <div class="muted">${dataLunga(l.data).replace(/^./, (c) => c.toUpperCase())} · ${l.inizio}–${l.fine}${dettagliLezione(l) ? " · " + dettagliLezione(l) : ""}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div></div>`).join("");
   };
   const t = new Date(o.scaricato);
   return `<div class="barra-azioni">
@@ -325,11 +368,19 @@ function schedaOrario() {
       <a class="btn ghost small" href="/api/pdf?settimana=${settimanaOrario}" target="_blank" rel="noopener">Scarica PDF</a>
     </div>
     <p class="sub" style="margin:0 0 12px">Dal ${dataBreve(s.inizio)} al ${dataBreve(s.fine)} · ${variazioni.length ? plurale(variazioni.length, "variazione", "variazioni") : "nessuna variazione"} · orario letto da WebUntis ${quando(o.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(o.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}</p>
-    <div class="box"><table class="orario"><thead><tr><th></th>${s.giorni.map((g) => `<th class="${g === D.oggi ? "oggi" : ""}">${GIORNI[giorno(g).getDay()]} ${giorno(g).getDate()}</th>`).join("")}</tr></thead><tbody>
-      ${s.fasce.map(([inizio, fine]) => `<tr><td class="ora"><strong>${inizio}</strong><br>${fine}</td>${s.giorni.map((g) => cella(g, inizio)).join("")}</tr>`).join("")}
-    </tbody></table></div>
-    ${variazioni.length ? `<h2>Variazioni della settimana</h2>${listaVariazioni(variazioni)}` : ""}
-    <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>`;
+    <div class="orario-layout"><div>
+      ${titolo("La settimana", "tocca un'ora per i dettagli")}
+      <div class="box pad"><div class="griglia-orario" style="--giorni:${s.giorni.length}">
+        <span></span>${s.giorni.map((g) => `<span class="testa-giorno${g === D.oggi ? " oggi" : ""}">${GIORNI[giorno(g).getDay()].slice(0, 3)}<b>${giorno(g).getDate()}</b></span>`).join("")}
+        ${s.fasce.map(([inizio, fine]) => `<span class="ora-fascia${s.giorni.includes(D.oggi) && inizio <= adesso && adesso < fine ? " ora" : ""}"><b>${inizio}</b><small>${fine}</small><i>${inizio.slice(0, 2)}</i></span>${s.giorni.map((g) => cella(g, inizio)).join("")}`).join("")}
+      </div>
+      ${dettaglio()}
+      <div class="legenda-orario"><span class="l-ora">adesso</span><span class="l-var">variazione</span><span class="l-ann">annullata</span></div></div>
+    </div><div>
+      ${titolo("Cosa cambia", variazioni.length ? plurale(variazioni.length, "variazione", "variazioni") : "")}
+      ${variazioni.length ? `<ul class="cambi">${variazioni.map(cartaVariazione).join("")}</ul>` : '<div class="box"><div class="empty">Nessuna variazione questa settimana.</div></div>'}
+      <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>
+    </div></div>`;
 }
 
 // Gli impegni di ogni giorno, per il calendario dell'Agenda: verifiche, altri promemoria, compiti e variazioni d'orario.
@@ -1274,7 +1325,7 @@ async function entra(id) {
     avviso(errore.message, true);
     return;
   }
-  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null; settimanaCompitiScelta = 0; giornoCompiti = null;
+  simulati = []; simVoto = null; settimanaOrario = 0; oraOrario = null; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null; settimanaCompitiScelta = 0; giornoCompiti = null;
   schermo(false);
   mostra();
   await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
@@ -1379,7 +1430,8 @@ document.addEventListener("click", (e) => {
     mostra();
   }
   else if (el.id === "aggiorna") aggiorna();
-  else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; mostra(); }
+  else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; oraOrario = null; mostra(); }
+  else if (el.dataset.cella) { oraOrario = el.dataset.cella; mostra(); }
   else if (el.dataset.sim) {
     const daFuori = !el.closest("#simulatore"); // dalle schede o da «Cosa fare»: si scende fino al simulatore
     simMateria = el.dataset.sim; simVoto = null; mostra();
