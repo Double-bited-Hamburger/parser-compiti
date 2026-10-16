@@ -1,6 +1,6 @@
 # Parser Compiti
 
-**Versione 0.1 beta.** Un'app per studenti che legge il registro elettronico della scuola e l'orario WebUntis, e li mette insieme in un'unica pagina:
+**Versione 0.2 beta.** Un'app per studenti che legge il registro elettronico della scuola e l'orario WebUntis, e li mette insieme in un'unica pagina:
 - agenda delle verifiche;
 - compiti da spuntare;
 - orario con supplenze e variazioni;
@@ -14,8 +14,8 @@ Gira sul PC (Windows, ma anche Linux e macOS) e come app Android. Le due copie s
 
 | | |
 | --- | --- |
-| 📱 **Android** | **[Scarica l'APK (0.1.0 beta)](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.1.0-beta/parser-compiti-0.1.0-beta.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
-| 💻 **PC** | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.1.0-beta) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
+| 📱 **Android** | **[Scarica l'APK (0.2.0 beta)](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.2.0-beta/parser-compiti-0.2.0-beta.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
+| 💻 **PC** | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.2.0-beta) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
 
 Tutte le versioni, con l'impronta SHA-256 di ogni APK, sono nelle [Release](../../releases). Installa l'APK solo da qui: uno preso altrove potrebbe essere stato modificato per rubare le password.
 
