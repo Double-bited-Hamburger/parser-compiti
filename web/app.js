@@ -17,7 +17,9 @@ let materiaGrafico = "";
 let simMateria = "";
 let simulati = []; // voti ipotetici: {materia, voto}
 let simVoto = null; // il voto che si sta provando nel simulatore, non ancora aggiunto
-let sezioniAperte = new Set(); // sezioni a scomparsa aperte (Voti: grafici, tutti i voti, consigli)
+let sezioniAperte = new Set(); // sezioni a scomparsa aperte (Voti: grafici, tutti i voti, consigli; Agenda: gli elenchi completi)
+let meseAgenda = 0; // il mese del calendario dell'Agenda, rispetto a quello di oggi
+let giornoAgenda = null; // il giorno scelto sul calendario (null = oggi)
 
 /* ---------- utilità ---------- */
 
@@ -328,26 +330,79 @@ function schedaOrario() {
     <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>`;
 }
 
+// Gli impegni di ogni giorno, per il calendario dell'Agenda: verifiche, altri promemoria, compiti e variazioni d'orario.
+function impegniPerGiorno() {
+  const m = new Map(), di = (iso) => { if (!m.has(iso)) m.set(iso, { verifiche: [], promemoria: [], compiti: [], variazioni: [] }); return m.get(iso); };
+  D.promemoria.forEach((p) => di(p.data)[p.verifica ? "verifiche" : "promemoria"].push(p));
+  D.compiti.forEach((c) => di(c.consegna).compiti.push(c));
+  lezioniOrario().filter((l) => l.variazione).forEach((l) => di(l.data).variazioni.push(l));
+  return m;
+}
+
+// Il mese come griglia (dal lunedì). In ogni giorno un puntino per impegno; sul PC al posto dei puntini i nomi delle materie.
+function calendarioMese(impegni) {
+  const base = giorno(D.oggi), primo = new Date(base.getFullYear(), base.getMonth() + meseAgenda, 1);
+  const giorniMese = new Date(primo.getFullYear(), primo.getMonth() + 1, 0).getDate(), vuoti = (primo.getDay() + 6) % 7;
+  const celle = Array(vuoti).fill('<span class="giorno-cal fuori"></span>');
+  for (let g = 1; g <= giorniMese; g++) {
+    const iso = isoDi(new Date(primo.getFullYear(), primo.getMonth(), g)), x = impegni.get(iso);
+    const voci = x ? [...x.verifiche.map((p) => ["v", p.materia || "Verifica"]), ...x.variazioni.map((l) => ["x", l.materia]),
+      ...x.compiti.map((c) => [fatti.has(c.id) ? "c fatto" : "c", c.materia]), ...x.promemoria.map((p) => ["p", p.materia || "Promemoria"])] : [];
+    const classe = [iso === D.oggi ? "oggi" : "", iso === giornoAgenda ? "scelto" : "", iso < D.oggi ? "passato" : "", (new Date(primo.getFullYear(), primo.getMonth(), g).getDay() + 6) % 7 > 4 ? "festivo" : ""].filter(Boolean).join(" ");
+    const descrizione = voci.length ? `: ${plurale(voci.length, "impegno", "impegni")}` : "";
+    celle.push(`<button type="button" class="giorno-cal ${classe}" data-giorno="${iso}" aria-pressed="${iso === giornoAgenda}" aria-label="${esc(dataLunga(iso) + descrizione)}">
+      <span class="num">${g}</span><span class="cal-punti">${voci.slice(0, 4).map(([t]) => `<i class="${t}"></i>`).join("")}</span>
+      <span class="cal-et">${voci.slice(0, 3).map(([t, n]) => `<i class="${t}">${esc(n)}</i>`).join("")}${voci.length > 3 ? `<small>+${voci.length - 3}</small>` : ""}</span></button>`);
+  }
+  const nome = `${MESI_LUNGHI[primo.getMonth()].replace(/^./, (c) => c.toUpperCase())} ${primo.getFullYear()}`;
+  return `<h2 class="con-destra">${nome}<span class="h2-destra mesi"><button type="button" class="link" data-mese="-1" aria-label="Mese precedente">‹</button>
+      <button type="button" class="link" data-mese="0">oggi</button><button type="button" class="link" data-mese="1" aria-label="Mese seguente">›</button></span></h2>
+    <div class="box pad calendario-mese"><div class="cal-griglia">${["L", "M", "M", "G", "V", "S", "D"].map((g) => `<span class="cal-testa">${g}</span>`).join("")}${celle.join("")}</div>
+      <div class="cal-legenda"><span><i class="v"></i>verifica</span><span><i class="c"></i>compito</span><span><i class="x"></i>variazione</span><span><i class="p"></i>promemoria</span></div></div>`;
+}
+
+// Cosa c'è nel giorno scelto sul calendario; i compiti si spuntano da qui come nella scheda Compiti.
+function giornoScelto(impegni) {
+  const x = impegni.get(giornoAgenda) || { verifiche: [], promemoria: [], compiti: [], variazioni: [] };
+  const n = giorniDa(giornoAgenda), riga = (classe, titolo, sotto, coda = "") => `<li class="evento ${classe}"><i aria-hidden="true"></i><div>${titolo}<div class="muted">${sotto}</div></div>${coda}</li>`;
+  const eventi = [
+    ...x.verifiche.map((p) => riga("v", `${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia) || "Verifica"}</strong>`,
+      [esc(p.testo), esc(p.orario), esc(aulaPromemoria(p))].filter(Boolean).join(" · ") + (n >= 1 ? ' · <button type="button" class="link" data-tab="studio">piano di studio →</button>' : ""), '<span class="tag bad">verifica</span>')),
+    ...x.variazioni.map((l) => riga("x", `<strong>${esc(l.materia)}</strong>`, `${l.inizio}–${l.fine}${dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}`, `<span class="tag${l.nuova || l.stato === "annullata" ? " bad" : ""}">${esc(l.stato)}</span>`)),
+    ...x.promemoria.map((p) => riga("p", `<strong>${esc(p.materia) || "Promemoria"}</strong>`, [esc(p.testo), esc(p.orario)].filter(Boolean).join(" · "))),
+  ].join("");
+  const compiti = x.compiti.map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label><input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+    <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> — ${esc(c.testo)}</span></label></li>`).join("");
+  const testa = dataLunga(giornoAgenda).replace(/^./, (c) => c.toUpperCase());
+  return `${titolo(testa, quando(giornoAgenda))}<div class="box giorno-scelto">${eventi || compiti
+    ? `${eventi ? `<ul class="eventi">${eventi}</ul>` : ""}${compiti ? `<ul class="todo">${compiti}</ul>` : ""}` : '<div class="empty">Niente in programma per questo giorno.</div>'}</div>`;
+}
+
 function schedaAgenda() {
   const verifiche = D.promemoria.filter((p) => p.verifica && giorniDa(p.data) >= 0), altri = D.promemoria.filter((p) => !p.verifica && giorniDa(p.data) >= 0);
   const variazioni = lezioniOrario().filter((l) => l.variazione && giorniDa(l.data) >= 0);
   const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0);
   const daFare = futuri.filter((c) => !fatti.has(c.id)).length;
-  const insufficienti = D.statistiche.filter((s) => s.insufficiente).length;
   const urgenti = D.consigli.filter((c) => c.livello !== "info").slice(0, 3);
+  if (!giornoAgenda) giornoAgenda = D.oggi;
+  const impegni = impegniPerGiorno();
+  // Sul PC il calendario a sinistra e il giorno scelto a destra; sul telefono uno sotto l'altro. Gli elenchi completi restano, chiusi, in fondo.
   return `<div class="cards">
       ${tessera(verifiche.length, "verifiche in arrivo")}
       ${tessera(daFare, "compiti da fare")}
+      ${tessera(variazioni.length, "variazioni d'orario")}
       ${tessera(media(D.media_generale), "media generale")}
-      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
     </div>
-    ${urgenti.length ? `<h2>Da tenere d'occhio</h2>${listaConsigli(urgenti)}` : ""}
-    ${variazioni.length ? `<h2>Variazioni d'orario</h2>${listaVariazioni(variazioni)}` : ""}
-    <h2>Verifiche in arrivo</h2>${tabellaPromemoria(verifiche)}
-    <h2>Compiti da fare</h2>${listaCompiti(futuri, "Nessun compito da fare.")}
-    ${altri.length ? `<h2>Altri promemoria</h2>${tabellaPromemoria(altri)}
-      <p class="note">Promemoria futuri senza parole chiave da verifica: dai un'occhiata, potrebbe essercene una scritta in modo insolito.</p>` : ""}
-    <h2>Nel tuo calendario</h2>${riquadroCalendario()}`;
+    <div class="agenda-griglia"><div class="agenda-colonna">${calendarioMese(impegni)}</div>
+      <div class="agenda-colonna">${giornoScelto(impegni)}${urgenti.length ? `${titolo("Da tenere d'occhio")}${listaConsigli(urgenti)}` : ""}</div></div>
+    <div class="sezioni">
+      ${sezione("a-verifiche", "Tutte le verifiche in arrivo", verifiche.length, tabellaPromemoria(verifiche))}
+      ${sezione("a-compiti", "Tutti i compiti da fare", daFare, listaCompiti(futuri, "Nessun compito da fare."))}
+      ${variazioni.length ? sezione("a-variazioni", "Variazioni d'orario", variazioni.length, listaVariazioni(variazioni)) : ""}
+      ${altri.length ? sezione("a-promemoria", "Altri promemoria", altri.length, `${tabellaPromemoria(altri)}
+        <p class="note">Promemoria futuri senza parole chiave da verifica: dai un'occhiata, potrebbe essercene una scritta in modo insolito.</p>`) : ""}
+      ${riquadroCalendario()}
+    </div>`;
 }
 
 // Mappa stile GitHub: una casella per giorno di consegna, blu pieno se hai fatto tutto, più chiaro man mano che ne salti.
@@ -954,12 +1009,12 @@ function testoCalendario(voci) {
 function riquadroCalendario() {
   vociMostrate = vociCalendario();
   const opzione = (k, nome) => `<label><input type="checkbox" data-cal="${k}" ${calOpz[k] ? "checked" : ""}> ${nome}</label>`;
-  return `<details class="box pad calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Testo per Google Calendar</summary>
+  return `<details class="sezione calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Copia nel calendario di Google</summary><div class="sezione-corpo">
     <p class="note">Copia il testo e incollalo nell'assistente di Google Calendar (o in Gemini): crea lui gli eventi. Con «Solo le novità» non ti ritrovi doppioni.</p>
     <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("studio", "Piano di studio")}${opzione("nuovi", "Solo le novità")}</div>
     <textarea id="cal-testo" readonly aria-label="Testo per il calendario">${esc(testoCalendario(vociMostrate))}</textarea>
     <div class="segmenti" style="margin-top:10px"><button type="button" class="btn small" id="cal-copia">Copia</button>
-      <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></details>`;
+      <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></div></details>`;
 }
 
 function aggiornaCalendario() {
@@ -1251,7 +1306,7 @@ async function entra(id) {
     avviso(errore.message, true);
     return;
   }
-  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = "";
+  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null;
   schermo(false);
   mostra();
   await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
@@ -1361,6 +1416,12 @@ document.addEventListener("click", (e) => {
     const daFuori = !el.closest("#simulatore"); // dalle schede o da «Cosa fare»: si scende fino al simulatore
     simMateria = el.dataset.sim; simVoto = null; mostra();
     if (daFuori) $("#simulatore")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  else if (el.dataset.giorno) { giornoAgenda = el.dataset.giorno; mostra(); }
+  else if (el.dataset.mese) {
+    meseAgenda = +el.dataset.mese ? meseAgenda + +el.dataset.mese : 0;
+    if (!meseAgenda) giornoAgenda = D.oggi;
+    mostra();
   }
   else if (el.dataset.simVoto) { simVoto = +el.dataset.simVoto; mostra(); }
   else if (el.id === "sim-aggiungi") { if (simVoto != null) { simulati.push({ materia: simMateria, voto: simVoto }); simVoto = null; mostra(); } }
