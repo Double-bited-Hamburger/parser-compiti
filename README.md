@@ -101,7 +101,8 @@ Struttura:
 - `argo_client.py`, `nuvola_client.py` e `classeviva_client.py` scaricano dai registri; `*_adatta.py` portano i dati di Nuvola e ClasseViva nella forma di quelli di Argo;
 - `parser.py` e `stats.py` fanno estrazione e calcoli;
 - `sincronizza.py` gestisce lo scambio con il telefono;
-- `web/` contiene la pagina, `android/` l'app Android.
+- `web/` contiene la pagina, `android/` l'app Android;
+- `strumenti/guida.py` rigenera `Guida.pdf` (serve ReportLab).
 
 ## Licenza
 
