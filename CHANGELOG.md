@@ -9,6 +9,11 @@
   - barre di avanzamento per i compiti del giorno dopo, per lo studio e sotto ogni voto recente;
   - sul PC la scheda si divide in tre colonne.
 - **Menu nuovo**: sul PC è una barra laterale con le icone; sul telefono una barra fissa in basso con tutte e otto le sezioni, sempre a portata di pollice.
+- **Scheda «Voti» ridisegnata**:
+  - «Cosa fare adesso»: le materie sotto il 6, quelle in calo e le verifiche della settimana nelle materie in bilico, con il voto che serve;
+  - una scheda per materia al posto della tabella: media, mini-grafico degli ultimi voti, andamento, scritto/orale/pratico, minimo e massimo, quanto serve per il 6;
+  - il simulatore diventa «Che voto mi serve?»: tocchi materia e voto e vedi subito come cambiano le medie; si possono ancora impilare più voti ipotetici;
+  - grafici, elenco di tutti i voti e consigli completi restano, in sezioni che si aprono con un tocco.
 - Tutti i temi vestono il nuovo disegno.
 
 ## 0.2.1-beta
