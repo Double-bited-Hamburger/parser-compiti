@@ -170,6 +170,16 @@ class Rete(DueDispositivi):
             sincronizza.ferma_ascolto()
             self.assertIsNone(sincronizza._trova_pc(CODICE, "127.0.0.1"))
 
+    def test_riattivazione_e_avvio_rapido(self):
+        # Fermato l'ascolto la porta torna subito libera (su Linux restava occupata), e l'avvio non cerca
+        # il nome del computer in rete (su macOS ci voleva più di un minuto).
+        with self.su(self.pc), mock.patch.object(sincronizza.socket, "getfqdn", side_effect=AssertionError("getfqdn")):
+            sincronizza._ricorda(codice=CODICE)
+            for _ in range(3):
+                self.assertTrue(sincronizza.avvia_ascolto(self.blocco))
+                self.assertEqual(sincronizza._trova_pc(CODICE, "127.0.0.1"), "127.0.0.1")
+                sincronizza.ferma_ascolto()
+
     def test_telefono_senza_pc(self):
         with self.su(self.telefono), mock.patch.object(sincronizza.config, "ANDROID", True):
             self.assertEqual(sincronizza.sincronizza_ora(self.blocco), {"trovato": False, "cambiato": False, "esito": None})  # non abbinato

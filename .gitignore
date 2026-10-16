@@ -9,8 +9,9 @@ prova/
 *.log
 config_locale.py
 
-# Python
+# Python (.venv lo crea avvia.bat / avvia.sh al primo avvio)
 __pycache__/
+.venv/
 
 # Android: build e chiave di firma (non va mai pubblicata)
 android/.gradle/

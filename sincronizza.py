@@ -18,6 +18,7 @@ import shutil
 import socket
 import threading
 import time
+import socketserver
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from cryptography.fernet import Fernet, InvalidToken
@@ -35,7 +36,7 @@ VALIDITA = 15 * 60
 NONCE_RICORDATI = 200
 
 revisione = 0  # cresce quando una sincronizzazione cambia i dati: la pagina aperta capisce di doverli rileggere
-_ascolto = None  # (server, socket della ricerca) quando il PC è in ascolto
+_ascolto = None  # (server, socket della ricerca, suo thread, segnale di stop) quando il PC è in ascolto
 _in_corso = threading.Lock()
 # Al massimo due scambi insieme: chi è sulla stessa Wi‑Fi non può riempire la memoria del PC di richieste.
 _scambi = threading.BoundedSemaphore(2)
@@ -329,10 +330,15 @@ class _Gestore(BaseHTTPRequestHandler):
         pass
 
 
-def _rispondi_alla_ricerca(presa):
-    while True:
+def _rispondi_alla_ricerca(presa, fermo):
+    # Si controlla ogni mezzo secondo se l'ascolto è stato fermato: su Linux e macOS chiudere la presa non sveglia
+    # chi è fermo in recvfrom, e la porta resterebbe occupata fino al prossimo messaggio.
+    presa.settimeout(0.5)
+    while not fermo.is_set():
         try:
             messaggio, mittente = presa.recvfrom(256)
+        except TimeoutError:
+            continue
         except ConnectionError:
             continue  # Windows segnala così una risposta arrivata a un telefono che aveva già chiuso: non è un problema
         except OSError:
@@ -345,6 +351,15 @@ def _rispondi_alla_ricerca(presa):
                 pass
 
 
+class ServerHTTP(ThreadingHTTPServer):
+    """ThreadingHTTPServer senza la ricerca del nome del computer in rete (getfqdn), che non serve:
+    su macOS può durare più di un minuto, e intanto l'app sembra bloccata."""
+
+    def server_bind(self):
+        socketserver.TCPServer.server_bind(self)
+        self.server_name, self.server_port = self.server_address[:2]
+
+
 def avvia_ascolto(blocco):
     """Il PC si mette in ascolto del telefono sulla rete locale. False se non serve o la porta è occupata."""
     global _ascolto
@@ -353,23 +368,32 @@ def avvia_ascolto(blocco):
     presa = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
     try:
         gestore = type("Gestore", (_Gestore,), {"blocco": blocco})
-        app = ThreadingHTTPServer(("0.0.0.0", config.PORTA_SYNC), gestore)
-        presa.bind(("0.0.0.0", config.PORTA_SYNC))
+        app = ServerHTTP(("0.0.0.0", config.PORTA_SYNC), gestore)
     except OSError:
         presa.close()
         return False
+    try:
+        presa.bind(("0.0.0.0", config.PORTA_SYNC))
+    except OSError:
+        presa.close()
+        app.server_close()
+        return False
     app.daemon_threads = True
     threading.Thread(target=app.serve_forever, daemon=True).start()
-    threading.Thread(target=_rispondi_alla_ricerca, args=(presa,), daemon=True).start()
-    _ascolto = (app, presa)
+    fermo = threading.Event()
+    ricerca = threading.Thread(target=_rispondi_alla_ricerca, args=(presa, fermo), daemon=True)
+    ricerca.start()
+    _ascolto = (app, presa, ricerca, fermo)
     return True
 
 
 def ferma_ascolto():
     global _ascolto
     if _ascolto:
-        app, presa = _ascolto
+        app, presa, ricerca, fermo = _ascolto
         _ascolto = None
+        fermo.set()
+        ricerca.join(timeout=2)
         presa.close()
         app.shutdown()
         app.server_close()
