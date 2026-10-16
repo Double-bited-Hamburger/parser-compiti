@@ -8,7 +8,7 @@
   - l'orario ha il riassunto della giornata («5 ore · 1 supplenza · 1 annullata») e accanto a ogni ora se è fatta, quanto manca o cosa è cambiato;
   - barre di avanzamento per i compiti del giorno dopo e sotto ogni voto recente;
   - sul PC la scheda si divide in tre colonne.
-- **Menu nuovo**: sul PC è una barra laterale con le icone; sul telefono una barra fissa in basso con tutte e otto le sezioni, sempre a portata di pollice.
+- **Menu nuovo**: sul PC è una barra laterale con le icone; sul telefono una barra fissa in basso con tutte le sezioni, sempre a portata di pollice.
 - **Scheda «Voti» ridisegnata**:
   - «Cosa fare adesso»: le materie sotto il 6, quelle in calo e le verifiche della settimana nelle materie in bilico, con il voto che serve e un collegamento al simulatore;
   - una scheda per materia al posto della tabella: media, mini-grafico degli ultimi voti, andamento, scritto/orale/pratico, minimo e massimo, quanto serve per il 6;
@@ -17,6 +17,8 @@
 - **Scheda «Agenda» ridisegnata**: un calendario del mese con un puntino colorato per ogni impegno (verifica, compito, variazione d'orario, promemoria; sul PC i nomi delle materie). Tocchi un giorno e accanto vedi cosa c'è, con i compiti da spuntare. Si può andare ai mesi successivi e tornare a oggi. Gli elenchi completi e il testo per Google Calendar restano, in sezioni che si aprono con un tocco.
 - **Scheda «Compiti» ridisegnata**: la settimana come un planner. Sul PC una colonna per giorno con i compiti da spuntare («Libero 🎉» se non c'è niente); sul telefono una striscia di giorni da toccare, con i puntini per i compiti, e sotto l'elenco del giorno scelto. Le frecce cambiano settimana; la domenica compare solo se c'è qualcosa da consegnare. Restano la ricerca, «Nascondi i fatti», il PDF, gli scaduti, la mappa dell'andamento e l'elenco completo (in una sezione che si apre con un tocco).
 - **Scheda «Orario» ridisegnata**: la settimana sta tutta nello schermo anche sul telefono, senza scorrere di lato (sigle delle materie sul telefono, nomi interi sul PC). Ogni materia ha il suo colore; oggi e l'ora in corso sono evidenziati, le ore passate sbiadite, le variazioni hanno un bordo e un puntino. Tocchi un'ora e sotto vedi aula, docente e cosa è cambiato. Le variazioni della settimana diventano schede «Cosa cambia» (accanto alla griglia sul PC). Restano la scelta della settimana e il PDF.
+- **Scheda «Carico di lavoro» ridisegnata**: in alto quanto lavoro c'è questa settimana rispetto alla media; i prossimi 14 giorni a colpo d'occhio, con un pallino per ogni compito e verifica e in rosso i giorni pieni (tocchi un giorno e vedi cosa c'è, con i compiti da spuntare); i giorni pieni in arrivo con le materie e un consiglio; da quali materie o docenti arriva il lavoro. I grafici restano, in sezioni che si aprono con un tocco.
+- **Scheda «Assenze» ridisegnata**: in cima quante ore puoi ancora perdere (anche in giorni di scuola), con una barra a tacche che diventa rossa dall'80% del limite e la previsione a fine anno al ritmo di adesso. Poi i numeri, le assenze e i ritardi da giustificare, gli ultimi eventi e le ore perse per materia. Il grafico per mese e la tabella completa restano, in sezioni che si aprono con un tocco.
 - **Tolta la scheda «Studio»** (il piano di studio in 4 passi prima delle verifiche), con «Da studiare oggi» nella scheda Oggi e l'opzione nel testo per Google Calendar: il menu passa da 8 a 7 sezioni. Le verifiche restano in Oggi, Agenda e Voti.
 - Tutti i temi vestono il nuovo disegno.
 

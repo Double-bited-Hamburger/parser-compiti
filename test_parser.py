@@ -130,6 +130,9 @@ class ParserTest(unittest.TestCase):
         self.assertEqual((a["ore_perse"], a["ore_svolte"], a["eventi_senza_ore"]), (6, 9, 1))
         self.assertEqual({m["materia"]: m["ore"] for m in a["per_materia"]}, {"Storia": 4, "Matematica": 2})
         self.assertEqual((a["limite_ore"], a["ore_rimaste"]), (264, 258))
+        self.assertEqual((a["ore_al_giorno"], a["previsione"]), (3, 704))  # 9 ore in 3 giorni; 6 perse su 9 → 2/3 di 32 × 33
+        vuoto = stats.assenze([], [])
+        self.assertEqual((vuoto["ore_al_giorno"], vuoto["previsione"]), (None, None))
 
     def test_consigli(self):
         voti = [estrai.Voto(date(2026, 9, i + 1), "Matematica", v, "", t, "", "") for i, (v, t) in enumerate([(4, "Scritto"), (5, "Scritto"), (7, "Orale")])]
