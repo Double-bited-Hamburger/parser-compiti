@@ -3,7 +3,7 @@
 L'app Android è la stessa app del PC: dentro c'è lo stesso codice Python (incorporato con Chaquopy) e la stessa pagina. Funziona da sola, anche fuori casa: scarica dai registri con le credenziali del profilo.
 
 ## Scaricare l'APK già pronto
-1. Dal telefono apri **[zaino-0.5.0.apk](https://github.com/Double-bited-Hamburger/zaino/releases/download/v0.5.0/zaino-0.5.0.apk)** (o scegli una versione nelle [Release](../../releases)).
+1. Dal telefono apri **[zaino-0.5.0.apk](https://github.com/Double-bited-Hamburger/zaino/releases/download/0.5.0/zaino-0.5.0.apk)** (o scegli una versione nelle [Release](../../releases)).
 2. Apri il file scaricato; Android chiede di consentire l'installazione dal browser: consentila.
 3. Fatto. Per aggiornare, scarica il nuovo APK e installalo sopra: i dati restano.
 
@@ -32,6 +32,8 @@ keyPassword=...
 (la chiave si crea con `keytool -genkeypair -keystore android/registro.jks -alias registro -keyalg RSA -validity 10000`). Chiave e password sono file solo tuoi, esclusi dal repository: **non pubblicarli mai** e conservane una copia, perché un APK firmato con un'altra chiave non si installa sopra quello vecchio (andrebbe disinstallata l'app, perdendo i dati del telefono, che però tornano dal PC con la sincronizzazione). È anche la protezione contro gli APK contraffatti: Android rifiuta un aggiornamento firmato da qualcun altro.
 
 **APK già pronto.** Chi non vuole costruirlo lo trova nelle [Release](../../releases) del progetto, con la sua impronta SHA-256 per controllare che sia quello originale. Non installare APK di questa app presi da altre parti.
+
+**Su GitHub.** L'APK delle Release lo costruisce GitHub da solo (`.github/workflows/apk.yml`): quando si pubblica una Release, firma l'app con la chiave del progetto e allega `zaino-<versione>.apk` con la sua impronta. La chiave sta nei Secrets del repository (`ANDROID_KEYSTORE`, il file `.jks` in base64, e `ANDROID_KEYSTORE_PASSWORD`). Dalla 0.5.0 la chiave è nuova (impronta SHA-256 del certificato `B2:A3:20:83:39:D4:82:A2:76:29:71:50:2E:F1:7F:40:A3:9E:65:E5:B0:5B:0B:C0:56:9E:41:75:66:8E:5C:AB`): chi ha la 0.2 deve disinstallarla una volta prima di installare la 0.5 (i dati tornano dal PC con la sincronizzazione).
 
 ## Installare sul telefono
 - **Con il cavo**: attiva «Debug USB» nelle Opzioni sviluppatore, collega il telefono e lancia

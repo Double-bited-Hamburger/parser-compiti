@@ -1,0 +1,97 @@
+name: APK
+
+# Costruisce l'app Android su GitHub, così non serve Android Studio sul PC.
+# - Release pubblicata (o avvio a mano con il tag): APK firmato con la chiave del progetto, allegato alla Release
+#   come zaino-<versione>.apk con la sua impronta SHA-256; se la Release non ha titolo o testo, li prende da CHANGELOG.md.
+# - Pull request che toccano l'app: solo la prova che l'APK si costruisce (scaricabile tra gli artifact del job).
+# La chiave sta nei Secrets del repository: ANDROID_KEYSTORE (il file .jks in base64) e ANDROID_KEYSTORE_PASSWORD.
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag della Release a cui allegare l'APK (per esempio 0.5.0)"
+        required: true
+  pull_request:
+    paths: ["android/**", ".github/workflows/apk.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    permissions:
+      contents: write # per allegare l'APK alla Release
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+      # Chaquopy prepara i pacchetti Python dell'app con lo stesso Python del telefono (3.12).
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+
+      - name: Chiave di firma
+        env:
+          KEYSTORE: ${{ secrets.ANDROID_KEYSTORE }}
+          PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$KEYSTORE" ] || [ -z "$PASSWORD" ]; then
+            if [ -n "$TAG" ]; then
+              echo "::error::Mancano i Secrets ANDROID_KEYSTORE e ANDROID_KEYSTORE_PASSWORD: un APK da pubblicare va firmato con la chiave del progetto."
+              exit 1
+            fi
+            echo "Niente chiave (prova di una pull request): l'APK si firma con la chiave di debug."
+            exit 0
+          fi
+          printf '%s' "$KEYSTORE" | base64 -d > android/zaino.jks
+          printf 'storeFile=zaino.jks\nstorePassword=%s\nkeyAlias=zaino\nkeyPassword=%s\n' "$PASSWORD" "$PASSWORD" > android/keystore.properties
+
+      - name: Costruisci
+        working-directory: android
+        run: bash gradlew --no-daemon assembleRelease
+
+      - name: Nome e impronta
+        id: apk
+        run: |
+          versione=$(python -c "import config; print(config.VERSIONE)")
+          nome="zaino-$versione.apk"
+          mkdir -p output
+          cp android/app/build/outputs/apk/release/app-release.apk "output/$nome"
+          (cd output && sha256sum "$nome" > "$nome.sha256" && cat "$nome.sha256")
+          echo "versione=$versione" >> "$GITHUB_OUTPUT"
+          echo "nome=$nome" >> "$GITHUB_OUTPUT"
+          rm -f android/zaino.jks android/keystore.properties
+
+      - name: Allega alla Release
+        if: env.TAG != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSIONE: ${{ steps.apk.outputs.versione }}
+          NOME: ${{ steps.apk.outputs.nome }}
+        run: |
+          gh release upload "$TAG" "output/$NOME" "output/$NOME.sha256" --clobber
+          # Titolo e testo, se la Release è stata pubblicata senza: la sezione della versione nel CHANGELOG.
+          if [ -z "$(gh release view "$TAG" --json name --jq .name)" ]; then gh release edit "$TAG" --title "Zaino $VERSIONE"; fi
+          if [ -z "$(gh release view "$TAG" --json body --jq .body)" ]; then
+            awk -v v="## $VERSIONE" '$0==v{dentro=1; next} /^## /{dentro=0} dentro' CHANGELOG.md > note.md
+            printf '\n**APK per Android**: %s (impronta SHA-256 in %s.sha256). **PC**: «Source code (zip)» qui sotto, poi avvia.bat o avvia.sh.\n' "$NOME" "$NOME" >> note.md
+            gh release edit "$TAG" --notes-file note.md
+          fi
+
+      - name: APK della prova
+        if: env.TAG == ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.apk.outputs.nome }}
+          path: output/
+          retention-days: 7
