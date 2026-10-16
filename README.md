@@ -10,6 +10,15 @@
 
 Gira sul PC (Windows, ma anche Linux e macOS) e come app Android. Le due copie si possono sincronizzare in Wi‑Fi.
 
+## Scarica
+
+| | |
+| --- | --- |
+| 📱 **Android** | **[Scarica l'APK (0.1.0 beta)](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.1.0-beta/parser-compiti-0.1.0-beta.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
+| 💻 **PC** | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.1.0-beta) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
+
+Tutte le versioni, con l'impronta SHA-256 di ogni APK, sono nelle [Release](../../releases). Installa l'APK solo da qui: uno preso altrove potrebbe essere stato modificato per rubare le password.
+
 > Progetto non ufficiale, fatto da uno studente. Non è affiliato né approvato da Argo Software, Madisoft, Gruppo Spaggiari Parma o Untis. Usa le stesse API delle app ufficiali per le famiglie, **solo in lettura**: sul registro non modifica nulla.
 
 ## 100% locale
@@ -56,7 +65,7 @@ Altre opzioni: `py main.py --help`.
 
 ## App Android
 
-Vedi [ANDROID.md](ANDROID.md): come costruire l'APK, installarlo e sincronizzarlo con il PC. L'APK già pronto è allegato alle [Release](../../releases), con la sua impronta SHA-256. Installa solo quello: un APK di questa app preso altrove potrebbe essere stato modificato per rubare le password.
+L'APK già pronto si scarica dalla sezione [Scarica](#scarica) qui sopra. In [ANDROID.md](ANDROID.md) c'è come installarlo, come costruirlo da te e come sincronizzarlo con il PC.
 
 ## Impostazioni
 
