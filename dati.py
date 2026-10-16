@@ -62,8 +62,9 @@ def _scarica_nuvola(profilo, password, cache, oggi=None):
 
 
 def _scarica_classeviva(profilo, password, oggi=None):
-    client = ClassevivaClient(profilo["utente"], password)
+    client = ClassevivaClient(profilo["utente"], password, profilo.get("studente", ""))
     client.login()
+    profili.annota_studenti(profilo["id"], client.scelte)  # per la scelta dello studente nel modulo del profilo
     grezzo = client.scarica(oggi)
     alunno, dashboard = classeviva_adatta.converti(grezzo, oggi)
     return {"profilo": alunno, "dashboard": dashboard, "classeviva": grezzo}

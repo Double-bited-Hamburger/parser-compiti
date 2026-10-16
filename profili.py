@@ -18,6 +18,7 @@ BASE = Path(__file__).parent
 CARTELLA = Path(config.DATI_DIR) / "profili" if config.DATI_DIR else BASE / "profili"
 SERVIZIO = "ParserCompiti"  # nome con cui le password compaiono nel Gestione credenziali di Windows
 REGISTRI = {"argo": "Argo didUP", "nuvola": "Nuvola", "classeviva": "ClasseViva"}
+_IDENT = re.compile(r"[A-Za-z0-9]{1,20}")  # codice di uno studente ClasseViva, tipo S1234567X
 
 _blocco = threading.Lock()
 
@@ -74,6 +75,21 @@ def segna_ultimo(id_profilo):
         dati = _leggi()
         dati["ultimo"] = id_profilo
         archivio.scrivi(_elenco_file(), dati)
+
+
+def studenti(id_profilo):
+    """Gli studenti tra cui scegliere per un account ClasseViva con più studenti (li annota l'ultimo download); [] se uno solo."""
+    elenco = (archivio.leggi(cartella(id_profilo) / "studenti.json") or {}).get("studenti")
+    return [{"ident": s["ident"], "name": _testo(s.get("name"))} for s in elenco or []
+            if isinstance(s, dict) and isinstance(s.get("ident"), str) and _IDENT.fullmatch(s["ident"])]
+
+
+def annota_studenti(id_profilo, scelte):
+    percorso = cartella(id_profilo) / "studenti.json"
+    if scelte:
+        archivio.scrivi(percorso, {"studenti": scelte})
+    else:
+        percorso.unlink(missing_ok=True)
 
 
 # ---------- password ----------
@@ -188,6 +204,8 @@ def salva(dati, id_profilo=None):
         "registro": registro,
         "scuola": _testo(dati.get("scuola")) if registro == "argo" else "",
         "utente": _testo(dati.get("utente")),
+        # Solo ClasseViva: quale studente mostrare se l'account ne ha più d'uno ("" = il primo).
+        "studente": _testo(dati.get("studente"), 20) if registro == "classeviva" else "",
         "untis": _untis(dati.get("untis")),
         "modificato": adesso(),  # tra due copie dello stesso profilo la sincronizzazione tiene la più recente
     }
@@ -197,6 +215,8 @@ def salva(dati, id_profilo=None):
         raise ProfiloNonValido("Inserisci il nome utente del registro.")
     if registro == "argo" and not nuovo["scuola"]:
         raise ProfiloNonValido("Per Argo didUP serve il codice scuola.")
+    if nuovo["studente"] and not _IDENT.fullmatch(nuovo["studente"]):
+        raise ProfiloNonValido("Studente non valido.")
     nuova_password = dati.get("password") if isinstance(dati.get("password"), str) else ""
 
     # Da quando valgono i dati scaricati: la sincronizzazione scarta quelli più vecchi, che sono di un altro account.
@@ -214,8 +234,13 @@ def salva(dati, id_profilo=None):
                 raise ProfiloNonValido("Profilo non trovato.")
             vecchio = tutti["profili"][posizione]
             nuovo["id"] = id_profilo
-            # Cambiando registro o account i dati scaricati non valgono più.
-            if (vecchio.get("registro"), vecchio.get("scuola"), vecchio.get("utente")) != (nuovo["registro"], nuovo["scuola"], nuovo["utente"]):
+            # Cambiando registro, account o studente i dati scaricati non valgono più.
+            stesso_account = (vecchio.get("registro"), vecchio.get("scuola"), vecchio.get("utente")) == (nuovo["registro"], nuovo["scuola"], nuovo["utente"])
+            if not stesso_account:
+                (cartella(id_profilo) / "studenti.json").unlink(missing_ok=True)
+            # "" vuol dire il primo studente: sceglierlo esplicitamente non cambia i dati.
+            primo = (studenti(id_profilo) or [{"ident": ""}])[0]["ident"]
+            if not stesso_account or (vecchio.get("studente") or primo) != (nuovo["studente"] or primo):
                 (cartella(id_profilo) / "dashboard.json").unlink(missing_ok=True)
             else:
                 nuovo["dati_dal"] = vecchio.get("dati_dal", "")

@@ -957,14 +957,14 @@ function nuovoModulo(profilo) {
   const u = (profilo && profilo.untis) || {};
   scuoleTrovate = null;
   return { id: profilo ? profilo.id : null, registro: profilo ? profilo.registro : "", nome: profilo ? profilo.nome : "", scuola: profilo ? profilo.scuola : "",
-    utente: profilo ? profilo.utente : "", password: "", untisServer: u.server || "", untisScuola: u.scuola || "", untisClasse: u.classe || "", cerca: "" };
+    utente: profilo ? profilo.utente : "", studente: (profilo && profilo.studente) || "", password: "", untisServer: u.server || "", untisScuola: u.scuola || "", untisClasse: u.classe || "", cerca: "" };
 }
 
 // Copia nel modulo ciò che è stato scritto finora, così ridisegnare la pagina non cancella nulla.
 function leggiModulo() {
   const f = $("#modulo-profilo");
   if (!f || !modulo) return;
-  ["nome", "scuola", "utente", "password", "untisClasse", "cerca"].forEach((c) => { if (f.elements[c]) modulo[c] = f.elements[c].value; });
+  ["nome", "scuola", "utente", "studente", "password", "untisClasse", "cerca"].forEach((c) => { if (f.elements[c]) modulo[c] = f.elements[c].value; });
   const scelto = f.querySelector('input[name="registro"]:checked');
   if (scelto) modulo.registro = scelto.value;
 }
@@ -1115,6 +1115,7 @@ function disegnaProfili() {
         ${campo("nome", "Nome del profilo", 'required maxlength="40" placeholder="Es. Mario"')}
         ${m.registro === "argo" ? campo("scuola", "Codice scuola", 'required placeholder="Lo stesso che scrivi su didUP"') : ""}
         ${campo("utente", "Nome utente", m.registro === "classeviva" ? 'required placeholder="Codice tipo S1234567X oppure email"' : "required")}
+        ${sceltaStudente(m)}
         <label>Password<input name="password" type="password" value="${esc(m.password)}" ${m.id ? 'placeholder="Lascia vuoto per non cambiarla"' : "required"} autocomplete="new-password"></label>
         ${m.registro === "classeviva" ? '<p class="note">ClasseViva è appena arrivato e non è ancora stato provato su molti account: se qualcosa non torna, segnalalo nelle issue del progetto su GitHub.</p>' : ""}
         <p class="note">${P.android ? "Tutto resta su questo telefono: la password è cifrata e viene inviata solo al registro scelto, a nessun altro server." : "Tutto resta su questo computer: la password sta nel portachiavi del sistema (su Windows il Gestione credenziali) e viene inviata solo al registro scelto, a nessun altro server."}</p></fieldset>
@@ -1127,6 +1128,15 @@ function disegnaProfili() {
       <div class="segmenti"><button class="btn" type="submit">${m.id ? "Salva" : "Salva ed entra"}</button>
         ${P.profili.length ? '<button class="btn ghost" type="button" id="annulla-profilo">Annulla</button>' : ""}</div>
     </form>${P.profili.length ? "" : riquadroSync() + firma()}`;
+}
+
+// ClasseViva, account con più studenti (per esempio un genitore con due figli): l'elenco arriva dopo il primo «Aggiorna».
+function sceltaStudente(m) {
+  const studenti = (m.registro === "classeviva" && m.id && P.studenti && P.studenti[m.id]) || [];
+  if (studenti.length < 2) return "";
+  const scelto = studenti.some((s) => s.ident === m.studente) ? m.studente : studenti[0].ident;
+  return `<label>Studente da mostrare<select name="studente">${studenti.map((s) =>
+    `<option value="${esc(s.ident)}"${s.ident === scelto ? " selected" : ""}>${esc(s.name || s.ident)}</option>`).join("")}</select></label>`;
 }
 
 async function entra(id) {
@@ -1162,7 +1172,7 @@ async function salvaProfilo() {
   leggiModulo();
   const m = modulo, untis = m.untisServer ? { server: m.untisServer, scuola: m.untisScuola, classe: m.untisClasse } : null;
   try {
-    const esito = await api("/api/profili", { id: m.id, profilo: { nome: m.nome, registro: m.registro, scuola: m.scuola, utente: m.utente, password: m.password, untis } });
+    const esito = await api("/api/profili", { id: m.id, profilo: { nome: m.nome, registro: m.registro, scuola: m.scuola, utente: m.utente, studente: m.studente, password: m.password, untis } });
     P = esito; modulo = null; avviso("");
     if (m.id) disegnaProfili(); else await entra(esito.salvato);
   } catch (errore) {
