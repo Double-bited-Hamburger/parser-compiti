@@ -15,6 +15,7 @@
   - il simulatore diventa «Che voto mi serve?»: tocchi materia e voto e vedi subito come cambiano le medie; si possono ancora impilare più voti ipotetici;
   - grafici, elenco di tutti i voti e consigli completi restano, in sezioni che si aprono con un tocco.
 - **Scheda «Agenda» ridisegnata**: un calendario del mese con un puntino colorato per ogni impegno (verifica, compito, variazione d'orario, promemoria; sul PC i nomi delle materie). Tocchi un giorno e accanto vedi cosa c'è, con i compiti da spuntare e il collegamento al piano di studio per le verifiche. Si può andare ai mesi successivi e tornare a oggi. Gli elenchi completi e il testo per Google Calendar restano, in sezioni che si aprono con un tocco.
+- **Scheda «Compiti» ridisegnata**: la settimana come un planner. Sul PC una colonna per giorno con i compiti da spuntare («Libero 🎉» se non c'è niente); sul telefono una striscia di giorni da toccare, con i puntini per i compiti, e sotto l'elenco del giorno scelto. Le frecce cambiano settimana; la domenica compare solo se c'è qualcosa da consegnare. Restano la ricerca, «Nascondi i fatti», il PDF, gli scaduti, la mappa dell'andamento e l'elenco completo (in una sezione che si apre con un tocco).
 - Tutti i temi vestono il nuovo disegno.
 
 ## 0.2.1-beta

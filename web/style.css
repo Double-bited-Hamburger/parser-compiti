@@ -451,6 +451,35 @@ ul.eventi li > i { width: 10px; height: 10px; margin-top: 6px; }
 ul.eventi li > div { flex: 1; min-width: 0; }
 .giorno-scelto ul.eventi:last-child li:last-child { border-bottom: 0; }
 
+/* Compiti: la settimana */
+.settimana { display: grid; grid-template-columns: repeat(var(--giorni, 6), minmax(0, 1fr)); gap: 6px; }
+.sett-giorno { display: contents; }
+.sett-testa { font: inherit; display: grid; justify-items: center; gap: 2px; padding: 8px 2px; min-width: 0; cursor: pointer;
+  border-radius: var(--r-box); border: 1px solid var(--line); background: var(--card); color: var(--text); }
+.sett-testa > span:first-child { font-size: 11px; color: var(--muted); }
+.sett-testa b { font-size: 17px; font-variant-numeric: tabular-nums; }
+.sett-punti { display: flex; gap: 3px; min-height: 6px; }
+.sett-punti i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); }
+.sett-punti i.fatto { opacity: .35; }
+.sett-giorno.passato .sett-testa b { color: var(--muted); }
+.sett-giorno.oggi .sett-testa { border-color: var(--accent); }
+.sett-giorno.scelto .sett-testa { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.sett-giorno.scelto .sett-testa > span:first-child, .sett-giorno.scelto .sett-testa b { color: var(--on-accent); }
+.sett-giorno.scelto .sett-punti i { background: var(--on-accent); }
+.sett-corpo { grid-column: 1 / -1; grid-row: 2; display: none; margin-top: 6px; background: var(--card); border: 1px solid var(--line); border-radius: var(--r-box); min-width: 0; }
+.sett-giorno.scelto .sett-corpo { display: block; }
+.sett-titolo { margin: 0; padding: 10px 14px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.sett-vuoto { margin: 0; padding: 14px; }
+.sett-testo { display: block; }
+@media (min-width: 1000px) {
+  .settimana { gap: 10px; }
+  .sett-giorno { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+  .sett-corpo { display: block; margin: 0; flex: 1; min-height: 240px; }
+  .sett-titolo { display: none; }
+  .sett-lista label { padding: 9px 10px; gap: 8px; font-size: 13px; }
+  .sett-vuoto { font-size: 13px; padding: 12px 10px; }
+}
+
 /* Voti */
 .voti-griglia { display: grid; gap: 0 28px; align-items: start; }
 @media (min-width: 1100px) { .voti-griglia { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
