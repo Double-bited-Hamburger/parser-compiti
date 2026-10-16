@@ -14,6 +14,7 @@
   - una scheda per materia al posto della tabella: media, mini-grafico degli ultimi voti, andamento, scritto/orale/pratico, minimo e massimo, quanto serve per il 6;
   - il simulatore diventa «Che voto mi serve?»: tocchi materia e voto e vedi subito come cambiano le medie; si possono ancora impilare più voti ipotetici;
   - grafici, elenco di tutti i voti e consigli completi restano, in sezioni che si aprono con un tocco.
+- **Scheda «Agenda» ridisegnata**: un calendario del mese con un puntino colorato per ogni impegno (verifica, compito, variazione d'orario, promemoria; sul PC i nomi delle materie). Tocchi un giorno e accanto vedi cosa c'è, con i compiti da spuntare e il collegamento al piano di studio per le verifiche. Si può andare ai mesi successivi e tornare a oggi. Gli elenchi completi e il testo per Google Calendar restano, in sezioni che si aprono con un tocco.
 - Tutti i temi vestono il nuovo disegno.
 
 ## 0.2.1-beta

@@ -402,6 +402,55 @@ svg.chart circle.pt { stroke: var(--card); stroke-width: 2; }
 .chip button { border: 0; background: none; color: var(--muted); cursor: pointer; font: inherit; padding: 0 6px; border-radius: 99px; }
 .chip button:hover { color: var(--bad); }
 
+/* Agenda: calendario del mese */
+.agenda-griglia { display: grid; gap: 0 28px; align-items: start; }
+@media (min-width: 1100px) { .agenda-griglia { grid-template-columns: minmax(0, 1.8fr) minmax(0, 1fr); } }
+.mesi { display: flex; gap: 6px; align-items: baseline; }
+.mesi .link { font-size: 15px; padding: 0 6px; }
+.cal-griglia { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 4px; }
+.cal-testa { text-align: center; font-size: 11px; font-weight: 600; color: var(--muted); padding-bottom: 4px; }
+.giorno-cal { font: inherit; color: var(--text); background: none; border: 1px solid transparent; border-radius: var(--r-box); cursor: pointer;
+  min-height: 48px; padding: 5px 2px; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 0; }
+.giorno-cal.fuori { cursor: default; }
+.giorno-cal:not(.fuori):hover { border-color: var(--line); }
+.giorno-cal .num { font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums; }
+.giorno-cal.festivo .num, .giorno-cal.passato .num { color: var(--muted); }
+.giorno-cal.passato .cal-punti, .giorno-cal.passato .cal-et { opacity: .5; }
+.giorno-cal.oggi { background: var(--accent-soft); border-color: var(--accent); }
+.giorno-cal.oggi .num { font-weight: 700; color: var(--accent); }
+.giorno-cal.scelto { background: var(--accent); border-color: var(--accent); }
+.giorno-cal.scelto .num { color: var(--on-accent); font-weight: 700; }
+.cal-punti { display: flex; gap: 3px; }
+.cal-punti i, .cal-legenda i, ul.eventi li > i { width: 6px; height: 6px; border-radius: 50%; background: var(--accent); flex: none; }
+.cal-punti i.v, .cal-legenda i.v, ul.eventi li.v > i { background: var(--bad); }
+.cal-punti i.x, .cal-legenda i.x, ul.eventi li.x > i { background: var(--warn); }
+.cal-punti i.p, .cal-legenda i.p, ul.eventi li.p > i { background: var(--muted); }
+.cal-punti i.fatto { opacity: .35; }
+.giorno-cal.scelto .cal-punti i { background: var(--on-accent); }
+.cal-et { display: none; width: 100%; flex-direction: column; gap: 2px; }
+.cal-et i { font-style: normal; font-size: 11px; font-weight: 600; line-height: 1.5; padding: 0 4px; border-radius: 4px; text-align: left;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; background: var(--accent-soft); color: var(--accent); }
+.cal-et i.v { background: var(--bad-bg); color: var(--bad); }
+.cal-et i.x { background: var(--warn-bg); color: var(--warn); }
+.cal-et i.p { background: var(--track); color: var(--muted); }
+.cal-et i.fatto { text-decoration: line-through; opacity: .6; }
+.cal-et small { font-size: 11px; color: var(--muted); text-align: left; padding: 0 4px; }
+.giorno-cal.scelto .cal-et i { background: var(--card); }
+.giorno-cal.scelto .cal-et small { color: var(--on-accent); }
+@media (min-width: 1100px) {
+  .giorno-cal { min-height: 92px; align-items: stretch; }
+  .giorno-cal .num { text-align: left; padding-left: 4px; }
+  .cal-punti { display: none; }
+  .cal-et { display: flex; }
+}
+.cal-legenda { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
+.cal-legenda span { display: inline-flex; gap: 6px; align-items: center; }
+ul.eventi { list-style: none; margin: 0; padding: 0; }
+ul.eventi li { display: flex; gap: 12px; align-items: flex-start; padding: 12px 14px; border-bottom: 1px solid var(--line); }
+ul.eventi li > i { width: 10px; height: 10px; margin-top: 6px; }
+ul.eventi li > div { flex: 1; min-width: 0; }
+.giorno-scelto ul.eventi:last-child li:last-child { border-bottom: 0; }
+
 /* Voti */
 .voti-griglia { display: grid; gap: 0 28px; align-items: start; }
 @media (min-width: 1100px) { .voti-griglia { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
@@ -521,8 +570,6 @@ ul.todo .passo { display: block; font-size: 13px; }
 ul.todo li.fatto .passo { text-decoration: none; }
 
 /* Testo per il calendario */
-details.calendario summary { cursor: pointer; font-weight: 600; }
-details.calendario[open] summary { margin-bottom: 4px; }
 .opzioni { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 12px 0; }
 .opzioni label { display: flex; gap: 6px; align-items: center; cursor: pointer; font-size: 14px; }
 .opzioni input { accent-color: var(--accent); }
