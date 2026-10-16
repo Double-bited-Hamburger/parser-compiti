@@ -201,7 +201,7 @@ function tabellaPromemoria(lista) {
   return `<div class="box"><table><thead><tr><th>Quando</th><th>Materia</th><th>Dettagli</th></tr></thead><tbody>${righe.join("")}</tbody></table></div>`;
 }
 
-function listaCompiti(lista, vuoto) {
+function listaCompiti(lista, vuoto, testa = "") {
   if (nascondiFatti) lista = lista.filter((c) => !fatti.has(c.id));
   if (!lista.length) return `<div class="box"><div class="empty">${vuoto}</div></div>`;
   const perGiorno = new Map();
@@ -215,7 +215,7 @@ function listaCompiti(lista, vuoto) {
       <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> — ${esc(c.testo)}</span></label></li>`).join("");
     html += "</ul>";
   });
-  return `<div class="box">${html}</div>`;
+  return `<div class="box">${testa}${html}</div>`;
 }
 
 function listaConsigli(voci) {
@@ -230,10 +230,15 @@ const temaNothing = () => document.documentElement.dataset.tema === "nothing";
 const aPunti = (testo, passo) => `<span class="a-punti" role="img" aria-label="${esc(testo)}">${puntini(testo, passo)}</span>`;
 const grande = (testo, passo = 3) => (temaNothing() ? aPunti(testo, passo) : esc(testo));
 
-const tessera = (valore, etichetta, classe = "") => {
+const tessera = (valore, etichetta, classe = "", sotto = "") => {
   const v = String(valore);
-  return `<div class="card"><b class="${classe}">${temaNothing() && v.length <= 7 && !/[<&]/.test(v) ? aPunti(v, 4) : v}</b><span>${etichetta}</span></div>`;
+  return `<div class="card"><b class="${classe}">${temaNothing() && v.length <= 7 && !/[<&]/.test(v) ? aPunti(v, 4) : v}</b><span>${etichetta}</span>${sotto}</div>`;
 };
+
+// Barra di avanzamento sottile; «barraTacche» è divisa in pezzi [peso, "si" | "ora" | ""] (uno per passo, o per 5 minuti di lezione).
+const barra = (quota, classe = "") => `<div class="progresso ${classe}"><i style="width:${Math.round(Math.min(1, Math.max(0, quota)) * 100)}%"></i></div>`;
+const barraTacche = (pezzi, etichetta) => `<div class="tacche" role="img" aria-label="${esc(etichetta)}">${pezzi.map(([peso, classe]) =>
+  `<i class="${classe}" style="flex-grow:${peso}"></i>`).join("")}</div>`;
 
 /* ---------- novità ---------- */
 
@@ -275,9 +280,9 @@ function segnaVisti(schedaVista) {
 // Il numero di novità accanto al nome delle schede.
 function contatoriSchede() {
   document.querySelectorAll(".tabs button").forEach((b) => {
-    b.dataset.nome ||= b.textContent;
     const n = (VISTE_DA[b.dataset.tab] || []).reduce((t, c) => t + contaNuovi(c), 0);
-    b.innerHTML = esc(b.dataset.nome) + (n ? ` <span class="conta-nuovi" aria-label="${n} novità">${n}</span>` : "");
+    b.querySelector(".conta-nuovi")?.remove();
+    if (n) b.insertAdjacentHTML("beforeend", `<span class="conta-nuovi" aria-label="${n} novità">${n}</span>`);
   });
 }
 
@@ -698,86 +703,109 @@ function dettagliLezione(l) {
   return esc([l.aule.length ? "aula " + l.aule.join(", ") : "", l.docenti.join(", ")].filter(Boolean).join(" · "));
 }
 
+// Il conto alla rovescia fino a un orario di oggi («−20:00»): lo aggiorna ogni secondo il timer in fondo al file.
+function contoGiu(hhmm) {
+  const s = Math.max(0, Math.ceil((minuti(hhmm) * 60000 - (Date.now() - new Date().setHours(0, 0, 0, 0))) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), due = (n) => String(n).padStart(2, "0");
+  return "−" + (h ? `${h}:${due(m)}` : m) + ":" + due(s % 60);
+}
+const riquadroConto = (hhmm, etichetta) => `<div class="conto-giu"><b data-fine="${hhmm}">${contoGiu(hhmm)}</b><span>${etichetta}</span></div>`;
+
 function riquadroAdesso(lezioni) {
   const adesso = oraDi(new Date());
   const valide = lezioni.filter((l) => l.stato !== "annullata");
   const ora = valide.find((l) => l.inizio <= adesso && adesso < l.fine);
   const dopo = valide.find((l) => l.inizio > adesso && (!ora || l.inizio >= ora.fine));
   const tra = (hhmm) => { const n = minuti(hhmm) - minuti(adesso); return n < 60 ? `tra ${n} min` : `tra ${Math.floor(n / 60)} h ${n % 60 ? (n % 60) + " min" : ""}`.trim(); };
+  const quale = (l) => [...new Set(lezioni.map((x) => x.inizio))].sort().indexOf(l.inizio) + 1;
+  const dettagli = (l) => `${l.inizio}–${l.fine}${dettagliLezione(l) ? " · " + dettagliLezione(l) : ""}`;
   let corpo;
   if (ora) {
-    const fatto = Math.round(((minuti(adesso) - minuti(ora.inizio)) / Math.max(1, minuti(ora.fine) - minuti(ora.inizio))) * 100);
-    corpo = `<span class="etichetta">Adesso</span><span class="grande">${grande(ora.materia)}</span>
-      <span class="muted">fino alle ${ora.fine}${dettagliLezione(ora) ? " · " + dettagliLezione(ora) : ""}</span>
-      <div class="progresso"><i style="width:${fatto}%"></i></div>
+    // Una tacca ogni 5 minuti di lezione: piene quelle passate, a metà quella in corso.
+    const durata = Math.max(5, minuti(ora.fine) - minuti(ora.inizio)), passati = minuti(adesso) - minuti(ora.inizio);
+    const pezzi = Math.round(durata / 5), pieni = Math.min(pezzi, Math.floor((passati / durata) * pezzi));
+    corpo = `<div class="adesso-riga"><div class="adesso-testo"><span class="etichetta">Adesso · ${quale(ora)}ª ora</span><span class="grande">${grande(ora.materia)}</span>
+      <span class="muted">${dettagli(ora)}</span></div>${riquadroConto(ora.fine, "alla fine dell'ora")}</div>
+      ${barraTacche(Array.from({ length: pezzi }, (_, i) => [1, i < pieni ? "si" : i === pieni ? "ora" : ""]), `Passati ${passati} minuti su ${durata}`)}
       ${dopo ? `<div class="poi"><span class="etichetta">Dopo</span> <strong>${esc(dopo.materia)}</strong> <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span></div>` : '<div class="poi muted">È l\'ultima ora di oggi.</div>'}`;
   } else if (dopo) {
-    corpo = `<span class="etichetta">Prossima lezione · ${tra(dopo.inizio)}</span><span class="grande">${grande(dopo.materia)}</span>
-      <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span>`;
+    corpo = `<div class="adesso-riga"><div class="adesso-testo"><span class="etichetta">Prossima lezione · ${tra(dopo.inizio)}</span><span class="grande">${grande(dopo.materia)}</span>
+      <span class="muted">${dettagli(dopo)}</span></div>${riquadroConto(dopo.inizio, "all'inizio")}</div>`;
   } else {
     const prossimo = prossimoGiornoDiScuola();
     const primo = lezioniOrario().filter((l) => l.data === prossimo && l.stato !== "annullata").sort((a, b) => (a.inizio < b.inizio ? -1 : 1))[0];
-    corpo = `<span class="etichetta">${valide.length ? "Lezioni finite per oggi" : "Oggi niente lezioni"}</span>
+    corpo = `<div class="adesso-testo"><span class="etichetta">${valide.length ? "Lezioni finite per oggi" : "Oggi niente lezioni"}</span>
       <span class="grande">${primo ? `${giorniDa(prossimo) === 1 ? "Domani" : dataLunga(prossimo).replace(/^./, (c) => c.toUpperCase())} si entra alle ${primo.inizio}` : "Goditi la pausa"}</span>
-      ${primo ? `<span class="muted">prima ora: ${esc(primo.materia)}${dettagliLezione(primo) ? " · " + dettagliLezione(primo) : ""}</span>` : ""}`;
+      ${primo ? `<span class="muted">prima ora: ${esc(primo.materia)}${dettagliLezione(primo) ? " · " + dettagliLezione(primo) : ""}</span>` : ""}</div>`;
   }
-  return `<div class="box pad adesso"><div class="adesso-testo">${corpo}</div>${anelloGiornata(lezioni)}</div>`;
+  return `<div class="box pad adesso">${corpo}</div>`;
 }
 
-// La giornata come un anello di puntini: sei per ogni ora di lezione, accesi man mano che il tempo passa.
-// Il puntino dell'istante attuale è rosso (e lampeggia); un'ora annullata resta vuota.
-function anelloGiornata(lezioni) {
-  const ore = [...new Map(lezioni.map((l) => [l.inizio, l])).values()];
-  if (!ore.length) return "";
-  const adesso = minuti(oraDi(new Date())), PER = 6, POSTI = ore.length * (PER + 1), R = 52, C = 60;
-  let punti = "", centro;
-  ore.forEach((l, i) => {
-    const a = minuti(l.inizio), b = minuti(l.fine);
-    const annullata = lezioni.filter((x) => x.inizio === l.inizio).every((x) => x.stato === "annullata");
-    const accesi = adesso >= b ? PER : adesso <= a ? 0 : Math.floor(((adesso - a) / Math.max(1, b - a)) * PER);
-    const inCorso = !annullata && adesso >= a && adesso < b;
-    if (inCorso) centro = `<b>${i + 1}ª ora</b><span>${b - adesso}' alla fine</span>`;
-    for (let k = 0; k < PER; k++) {
-      const angolo = -Math.PI / 2 + ((i * (PER + 1) + k + 0.5) / POSTI) * 2 * Math.PI;
-      const classe = annullata ? "vuoto" : inCorso && k === accesi ? "ora" : k < accesi ? "acceso" : "spento";
-      punti += `<circle class="${classe}" cx="${(C + R * Math.cos(angolo)).toFixed(1)}" cy="${(C + R * Math.sin(angolo)).toFixed(1)}" r="3.4"/>`;
-    }
-  });
-  if (!centro) centro = adesso < minuti(ore[0].inizio) ? `<b>${ore.length} ore</b><span>dalle ${ore[0].inizio}</span>` : `<b>Finito</b><span>${ore.length} ore fatte</span>`;
-  return `<div class="anello" role="img" aria-label="Avanzamento della giornata"><svg viewBox="0 0 120 120" aria-hidden="true">${punti}</svg><div class="anello-centro">${centro}</div></div>`;
+const VARIAZIONI = { supplenza: "supplenze", annullata: "annullate", "cambio aula": "cambi d'aula", spostata: "spostate", aggiuntiva: "aggiuntive" };
+
+// «5 ore · 1 supplenza · 1 annullata»: il riassunto accanto al titolo dell'orario.
+function riassuntoGiornata(lezioni) {
+  const conti = new Map();
+  lezioni.filter((l) => l.variazione).forEach((l) => conti.set(l.stato, (conti.get(l.stato) || 0) + 1));
+  return [plurale(new Set(lezioni.map((l) => l.inizio)).size, "ora", "ore"), ...[...conti].map(([s, n]) => `${n} ${n === 1 ? s : VARIAZIONI[s] || s}`)].map(esc).join(" · ");
 }
 
 function giornata(lezioni) {
   const adesso = oraDi(new Date());
   return `<div class="box"><ul class="giornata">${lezioni.map((l) => {
-    const classe = [l.fine <= adesso ? "passata" : l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata" ? "ora" : "", l.stato === "annullata" ? "annullata" : ""].join(" ");
+    const inCorso = l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata", passata = l.fine <= adesso;
+    const classe = [passata ? "passata" : inCorso ? "ora" : "", l.stato === "annullata" ? "annullata" : ""].join(" ");
+    const stato = l.variazione ? `<span class="tag${l.nuova || l.stato === "annullata" ? " bad" : ""}">${esc(l.stato)}</span>`
+      : inCorso ? `<span class="tag accento">ancora ${minuti(l.fine) - minuti(adesso)}'</span>` : passata ? '<span class="muted fatta">✓ fatta</span>' : "";
     return `<li class="${classe}"><span class="ore">${l.inizio}–${l.fine}</span><div><strong>${esc(l.materia)}</strong>
-      ${l.variazione ? ` <span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}</span>` : ""}
-      <div class="muted">${dettagliLezione(l)}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div></li>`;
+      <div class="muted">${dettagliLezione(l)}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div>${stato}</li>`;
   }).join("")}</ul></div>`;
 }
+
+// Un titolo di sezione con, a destra, un riassunto in piccolo.
+const titolo = (testo, destra = "") => (destra ? `<h2 class="con-destra">${testo}<span class="h2-destra">${destra}</span></h2>` : `<h2>${testo}</h2>`);
 
 function schedaOggi() {
   const lezioni = lezioniOrario().filter((l) => l.data === D.oggi).sort((a, b) => (a.inizio < b.inizio ? -1 : a.inizio > b.inizio ? 1 : 0));
   const prossimo = prossimoGiornoDiScuola();
   const perOggi = D.compiti.filter((c) => c.consegna === D.oggi && !fatti.has(c.id));
   const perProssimo = D.compiti.filter((c) => c.consegna === prossimo);
+  const fattiProssimo = perProssimo.filter((c) => fatti.has(c.id)).length;
   const studio = pianoStudio().filter((s) => s.giorno === D.oggi);
-  const verifiche = verificheFuture().filter((p) => giorniDa(p.data) <= 7);
+  const minStudio = studio.reduce((t, s) => t + s.min, 0), minFatti = studio.filter((s) => fatti.has(s.id)).reduce((t, s) => t + s.min, 0);
+  const future = verificheFuture().sort((a, b) => (a.data < b.data ? -1 : 1));
+  const verifiche = future.filter((p) => giorniDa(p.data) <= 7);
   const nuoviVoti = D.voti.filter((v) => giorniDa(v.data) >= -3).sort((a, b) => (a.data < b.data ? 1 : -1));
+  const conVoto = nuoviVoti.filter((v) => v.valore != null);
+  const daFare = D.compiti.filter((c) => giorniDa(c.consegna) >= 0 && !fatti.has(c.id)).length;
+  const gg = future.length ? giorniDa(future[0].data) : null;
   const d = giorno(D.oggi);
   const titoloProssimo = giorniDa(prossimo) === 1 ? "Per domani" : `Per ${dataLunga(prossimo)}`;
+  // Tre colonne sul PC, una sola sul telefono (in quest'ordine): adesso e orario; compiti e studio; verifiche e voti.
   return `<p class="oggi-data">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI_LUNGHI[d.getMonth()]}</p>
-    ${D.orario ? riquadroAdesso(lezioni) : ""}
-    ${lezioni.length ? `<h2>Orario di oggi</h2>${giornata(lezioni)}` : ""}
-    ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
-    <h2>${titoloProssimo}</h2>${listaCompiti(perProssimo, "Niente da consegnare.")}
-    ${studio.length ? `<h2>Da studiare oggi</h2><div class="box">${listaPassi(studio, true)}</div>` : ""}
-    <h2>Verifiche nei prossimi 7 giorni</h2>${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => `<li class="${giorniDa(p.data) <= 1 ? "critico" : "attenzione"}">
-      <span class="icona conto" aria-hidden="true">${giorniDa(p.data)}</span>
-      <div>${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia)}</strong> <span class="muted">· ${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${quando(p.data)}</span><div class="muted">${esc(p.testo)}</div></div></li>`).join("")}</ul></div>`
-      : '<div class="box"><div class="empty">Nessuna verifica in vista.</div></div>'}
-    ${nuoviVoti.length ? `<h2>Voti degli ultimi giorni</h2><div class="cards" style="margin-top:0">${nuoviVoti.map((v) => tessera(esc(v.codice), `${puntoNuovo(nuovo("voti", chiaveVoto(v)))}${esc(v.materia)} · ${dataBreve(v.data)}`, v.valore < D.sufficienza ? "bad" : "ok")).join("")}</div>` : ""}`;
+    <div class="cards oggi-numeri">
+      ${tessera(daFare, "compiti da fare")}
+      ${tessera(verifiche.length, "verifiche nei prossimi 7 giorni")}
+      ${tessera(gg == null ? "–" : gg === 0 ? "oggi" : gg === 1 ? "domani" : `${gg} gg`, "alla prossima verifica", gg != null && gg <= 2 ? "bad" : "")}
+      ${tessera(media(D.media_generale), "media generale", D.media_generale != null && D.media_generale < D.sufficienza ? "bad" : "")}
+    </div>
+    <div class="oggi-griglia"><div class="oggi-colonna">
+      ${D.orario ? riquadroAdesso(lezioni) : ""}
+      ${lezioni.length ? `${titolo("Orario di oggi", riassuntoGiornata(lezioni))}${giornata(lezioni)}` : ""}
+    </div><div class="oggi-colonna">
+      ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
+      ${titolo(titoloProssimo, perProssimo.length ? `${fattiProssimo} di ${perProssimo.length} fatti` : "")}${listaCompiti(perProssimo, "Niente da consegnare.",
+        perProssimo.length ? `<div class="box-barra">${barra(fattiProssimo / perProssimo.length, "fatti")}</div>` : "")}
+      ${studio.length ? `${titolo("Da studiare oggi", `${minFatti} di ${minStudio} min`)}<div class="box"><div class="box-barra">${barraTacche(studio.map((s) => [s.min, fatti.has(s.id) ? "si" : ""]), `${minFatti} minuti fatti su ${minStudio}`)}</div>${listaPassi(studio, true)}</div>` : ""}
+    </div><div class="oggi-colonna">
+      ${titolo("Verifiche nei prossimi 7 giorni")}${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => { const n = giorniDa(p.data); return `<li class="${n <= 1 ? "critico" : "attenzione"}">
+        <span class="icona conto" aria-hidden="true">${n === 0 ? "<small>oggi</small>" : `<b>${n}</b><small>${n === 1 ? "giorno" : "giorni"}</small>`}</span>
+        <div>${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia)}</strong> <span class="muted">· ${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${quando(p.data)}</span><div class="muted">${esc(p.testo)}</div></div></li>`; }).join("")}</ul></div>`
+        : '<div class="box"><div class="empty">Nessuna verifica in vista.</div></div>'}
+      ${nuoviVoti.length ? `${titolo("Voti degli ultimi giorni", conVoto.length > 1 ? "media " + num(Math.round((conVoto.reduce((t, v) => t + v.valore, 0) / conVoto.length) * 10) / 10) : "")}
+        <div class="cards oggi-voti">${nuoviVoti.map((v) => tessera(esc(v.codice), `${puntoNuovo(nuovo("voti", chiaveVoto(v)))}${esc(v.materia)} · ${dataBreve(v.data)}`, v.valore < D.sufficienza ? "bad" : "ok",
+          v.valore == null ? "" : barra(v.valore / 10, v.valore < D.sufficienza ? "basso" : "alto"))).join("")}</div>` : ""}
+    </div></div>`;
 }
 
 /* ---------- ricerca nei compiti ---------- */
@@ -1297,6 +1325,15 @@ function comunicaTema() {
 setInterval(() => {
   if (scheda === "oggi" && D && !D.vuoto && !document.hidden && !$("#app").hidden) mostra();
 }, 60000);
+
+// Il conto alla rovescia del riquadro «Adesso» scorre ogni secondo; a zero la scheda si ridisegna (inizia l'ora dopo).
+setInterval(() => {
+  if (scheda !== "oggi" || !D || D.vuoto || $("#app").hidden) return; // nelle altre schede il riquadro resta nascosto e fermo
+  document.querySelectorAll("#tab-oggi [data-fine]").forEach((el) => {
+    el.textContent = contoGiu(el.dataset.fine);
+    if (el.textContent === "−0:00" && !document.hidden) mostra();
+  });
+}, 1000);
 
 (async function avvio() {
   $("#tema").innerHTML = Object.entries(TEMI).map(([k, nome]) => `<option value="${k}"${k === temaScelto ? " selected" : ""}>${nome}</option>`).join("");

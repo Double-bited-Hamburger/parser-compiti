@@ -1,5 +1,16 @@
 # Novità
 
+## In arrivo
+
+- **Scheda «Oggi» ridisegnata**:
+  - in alto quattro numeri: compiti da fare, verifiche della settimana, giorni alla prossima verifica, media generale;
+  - nel riquadro «Adesso» un conto alla rovescia che scorre secondo per secondo e una barra a tacche (una ogni 5 minuti di lezione) al posto dell'anello;
+  - l'orario ha il riassunto della giornata («5 ore · 1 supplenza · 1 annullata») e accanto a ogni ora se è fatta, quanto manca o cosa è cambiato;
+  - barre di avanzamento per i compiti del giorno dopo, per lo studio e sotto ogni voto recente;
+  - sul PC la scheda si divide in tre colonne.
+- **Menu nuovo**: sul PC è una barra laterale con le icone; sul telefono una barra fissa in basso con tutte e otto le sezioni, sempre a portata di pollice.
+- Tutti i temi vestono il nuovo disegno.
+
 ## 0.2.1-beta
 
 - **Linux e macOS**: nuovo `avvia.sh`. Su tutti e tre i sistemi lo script di avvio (`avvia.bat` su Windows) prepara da solo, al primo avvio, un ambiente Python nella cartella `.venv` con le librerie giuste: niente più `pip install` a mano, e su Debian e Ubuntu recenti non si scontra con il Python del sistema. Controlla anche che ci sia Python 3.12 o successivo.
