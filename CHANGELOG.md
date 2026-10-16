@@ -25,6 +25,7 @@ Prima versione stabile: tutta l'interfaccia è stata ridisegnata, scheda per sch
 - **Scheda «Assenze» ridisegnata**: in cima quante ore puoi ancora perdere (anche in giorni di scuola), con una barra a tacche che diventa rossa dall'80% del limite e la previsione a fine anno al ritmo di adesso. Poi i numeri, le assenze e i ritardi da giustificare, gli ultimi eventi e le ore perse per materia. Il grafico per mese e la tabella completa restano, in sezioni che si aprono con un tocco.
 - **Tolta la scheda «Studio»** (il piano di studio in 4 passi prima delle verifiche), con «Da studiare oggi» nella scheda Oggi e l'opzione nel testo per Google Calendar: il menu passa da 8 a 7 sezioni. Le verifiche restano in Oggi, Agenda e Voti.
 - Tutti i temi vestono il nuovo disegno.
+- **Guida.pdf rifatta** da capo per la 0.5: schede nuove, telefono, ClasseViva, temi. Si rigenera con `py strumenti/guida.py`.
 
 ## 0.2.1-beta
 
