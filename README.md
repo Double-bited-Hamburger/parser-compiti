@@ -14,7 +14,7 @@ Gira sul PC (Windows, ma anche Linux e macOS) e come app Android. Le due copie s
 
 | | |
 | --- | --- |
-| 📱 **Android** | **[Scarica l'APK (0.5)](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.5.0/zaino-0.5.0.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
+| 📱 **Android** | **[Scarica l'APK (0.5)](https://github.com/Double-bited-Hamburger/zaino/releases/download/v0.5.0/zaino-0.5.0.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
 | 💻 **PC** (Windows, Linux, macOS) | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.5.0) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
 
 Tutte le versioni, con l'impronta SHA-256 di ogni APK, sono nelle [Release](../../releases). Installa l'APK solo da qui: uno preso altrove potrebbe essere stato modificato per rubare le password.
