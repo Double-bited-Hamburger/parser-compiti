@@ -1,5 +1,13 @@
 # Novità
 
+## 0.2.1-beta
+
+- **Linux e macOS**: nuovo `avvia.sh`. Su tutti e tre i sistemi lo script di avvio (`avvia.bat` su Windows) prepara da solo, al primo avvio, un ambiente Python nella cartella `.venv` con le librerie giuste: niente più `pip install` a mano, e su Debian e Ubuntu recenti non si scontra con il Python del sistema. Controlla anche che ci sia Python 3.12 o successivo.
+- **Sincronizzazione col telefono**:
+  - su Linux, dopo averla disattivata non si riusciva a riattivarla senza riavviare l'app;
+  - su macOS «Attiva» restava bloccato per più di un minuto.
+- I test automatici ora girano su Windows, Linux e macOS.
+
 ## 0.2.0-beta
 
 - **ClasseViva, account con più studenti** (per esempio un genitore con due figli): dopo il primo «Aggiorna», nel profilo compare «Studente da mostrare» per scegliere quale figlio vedere. La scelta passa anche al telefono con la sincronizzazione. Da provare su account veri ([#6](https://github.com/Double-bited-Hamburger/parser-compiti/issues/6)).
