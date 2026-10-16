@@ -20,6 +20,8 @@ let simVoto = null; // il voto che si sta provando nel simulatore, non ancora ag
 let sezioniAperte = new Set(); // sezioni a scomparsa aperte (Voti: grafici, tutti i voti, consigli; Agenda: gli elenchi completi)
 let meseAgenda = 0; // il mese del calendario dell'Agenda, rispetto a quello di oggi
 let giornoAgenda = null; // il giorno scelto sul calendario (null = oggi)
+let settimanaCompitiScelta = 0; // la settimana dei Compiti, rispetto a quella di oggi
+let giornoCompiti = null; // il giorno scelto nella settimana dei Compiti (sul telefono)
 
 /* ---------- utilità ---------- */
 
@@ -460,6 +462,37 @@ function mappaCompiti() {
       <p class="note">I compiti che non hai mai spuntato contano come non fatti, anche quelli di prima di iniziare a usare l'app.</p></div>`;
 }
 
+const GIORNI_BREVI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+// La settimana dei compiti: una colonna per giorno sul PC; sul telefono la stessa struttura diventa una striscia di giorni
+// da toccare con l'elenco del giorno scelto sotto (style.css). La domenica compare solo se c'è qualcosa da consegnare.
+function settimanaCompiti() {
+  const tutti = D.compiti_anno && D.compiti_anno.length ? D.compiti_anno : D.compiti;
+  const oggi = giorno(D.oggi), lunedi = new Date(oggi);
+  lunedi.setDate(oggi.getDate() - ((oggi.getDay() + 6) % 7) + (oggi.getDay() === 0 ? 7 : 0) + 7 * settimanaCompitiScelta); // di domenica si guarda già la settimana dopo
+  const giorni = Array.from({ length: 7 }, (_, i) => isoDi(new Date(lunedi.getFullYear(), lunedi.getMonth(), lunedi.getDate() + i)));
+  const per = new Map(giorni.map((g) => [g, []]));
+  tutti.forEach((c) => per.has(c.consegna) && per.get(c.consegna).push(c));
+  const visibili = giorni.filter((g, i) => i < 6 || per.get(g).length);
+  if (!visibili.includes(giornoCompiti)) giornoCompiti = visibili.includes(D.oggi) ? D.oggi : visibili.find((g) => per.get(g).some((c) => !fatti.has(c.id))) || visibili[0];
+  const primo = giorno(visibili[0]), ultimo = giorno(visibili[visibili.length - 1]);
+  const intervallo = primo.getMonth() === ultimo.getMonth() ? `${primo.getDate()}–${ultimo.getDate()} ${MESI_LUNGHI[primo.getMonth()]}` : `${primo.getDate()} ${MESI[primo.getMonth()]} – ${ultimo.getDate()} ${MESI[ultimo.getMonth()]}`;
+  const colonne = visibili.map((g) => {
+    const compiti = per.get(g), lista = compiti.filter((c) => !nascondiFatti || !fatti.has(c.id)), d = giorno(g);
+    const nome = dataLunga(g).replace(/^./, (c) => c.toUpperCase()), daFare = compiti.filter((c) => !fatti.has(c.id)).length;
+    return `<div class="sett-giorno${g === giornoCompiti ? " scelto" : ""}${g === D.oggi ? " oggi" : ""}${g < D.oggi ? " passato" : ""}">
+      <button type="button" class="sett-testa" data-giorno-compiti="${g}" aria-pressed="${g === giornoCompiti}" aria-label="${esc(nome)}: ${plurale(daFare, "compito da fare", "compiti da fare")}">
+        <span>${GIORNI_BREVI[(d.getDay() + 6) % 7]}</span><b>${d.getDate()}</b><span class="sett-punti">${compiti.slice(0, 4).map((c) => `<i class="${fatti.has(c.id) ? "fatto" : ""}"></i>`).join("")}</span></button>
+      <div class="sett-corpo"><p class="sett-titolo">${nome} <span class="muted">· ${quando(g)}</span></p>
+        ${lista.length ? `<ul class="todo sett-lista">${lista.map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label><input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+          <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> <span class="sett-testo">${esc(c.testo)}</span></span></label></li>`).join("")}</ul>`
+          : `<p class="sett-vuoto muted">${compiti.length ? "Tutto fatto ✓" : "Libero 🎉"}</p>`}</div></div>`;
+  }).join("");
+  return `<h2 class="con-destra">Settimana ${intervallo}<span class="h2-destra mesi"><button type="button" class="link" data-sett-compiti="-1" aria-label="Settimana precedente">‹</button>
+      <button type="button" class="link" data-sett-compiti="0">questa</button><button type="button" class="link" data-sett-compiti="1" aria-label="Settimana seguente">›</button></span></h2>
+    <div class="settimana" style="--giorni:${visibili.length}">${colonne}</div>`;
+}
+
 function schedaCompiti() {
   const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0), scaduti = D.compiti.filter((c) => giorniDa(c.consegna) < 0);
   const nFatti = futuri.filter((c) => fatti.has(c.id)).length;
@@ -473,10 +506,13 @@ function schedaCompiti() {
       <label><input type="checkbox" id="nascondi" ${nascondiFatti ? "checked" : ""}> Nascondi i fatti</label>
       <a class="btn ghost small" href="/api/esporta-compiti" target="_blank" rel="noopener">Scarica tutti i compiti (PDF)</a>
     </div>
+    ${settimanaCompiti()}
+    ${nonFatti ? `<h2>Scaduti negli ultimi giorni <span class="tag bad">${nonFatti} non spuntati</span></h2>${listaCompiti(scaduti.slice().reverse(), "Nessun arretrato.")}` : ""}
     ${mappaCompiti()}
-    <h2>Da fare</h2>${listaCompiti(futuri, nascondiFatti && futuri.length ? "Tutto fatto!" : "Nessun compito da fare.")}
-    <h2>Scaduti negli ultimi giorni ${nonFatti ? `<span class="tag bad">${nonFatti} non spuntati</span>` : ""}</h2>
-    ${listaCompiti(scaduti.slice().reverse(), nascondiFatti && scaduti.length ? "Nessun arretrato." : "Nessun compito scaduto di recente.")}
+    <div class="sezioni">
+      ${sezione("c-futuri", "Tutti i compiti da fare", futuri.length - nFatti, listaCompiti(futuri, nascondiFatti && futuri.length ? "Tutto fatto!" : "Nessun compito da fare."))}
+      ${scaduti.length && !nonFatti ? sezione("c-scaduti", "Scaduti negli ultimi giorni", scaduti.length, listaCompiti(scaduti.slice().reverse(), "Nessun compito scaduto di recente.")) : ""}
+    </div>
     <p class="note">Spunta un compito quando l'hai fatto: resta salvato anche dopo l'aggiornamento dei dati.</p></div>`;
 }
 
@@ -1306,7 +1342,7 @@ async function entra(id) {
     avviso(errore.message, true);
     return;
   }
-  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null;
+  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null; settimanaCompitiScelta = 0; giornoCompiti = null;
   schermo(false);
   mostra();
   await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
@@ -1418,6 +1454,8 @@ document.addEventListener("click", (e) => {
     if (daFuori) $("#simulatore")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
   else if (el.dataset.giorno) { giornoAgenda = el.dataset.giorno; mostra(); }
+  else if (el.dataset.giornoCompiti) { giornoCompiti = el.dataset.giornoCompiti; mostra(); }
+  else if (el.dataset.settCompiti) { settimanaCompitiScelta = +el.dataset.settCompiti ? settimanaCompitiScelta + +el.dataset.settCompiti : 0; giornoCompiti = null; mostra(); }
   else if (el.dataset.mese) {
     meseAgenda = +el.dataset.mese ? meseAgenda + +el.dataset.mese : 0;
     if (!meseAgenda) giornoAgenda = D.oggi;
