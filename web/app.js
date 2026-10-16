@@ -68,7 +68,7 @@ async function api(percorso, corpo) {
   return json;
 }
 
-let titoloAttuale = ["Registro", ""];
+let titoloAttuale = ["Zaino", ""];
 // Il titolo in alto: col tema «Nothing» la prima parte è a punti e il resto (il nome) va a capo in piccolo.
 function impostaTitolo(testo, resto = "") {
   titoloAttuale = [testo, resto];
@@ -76,7 +76,7 @@ function impostaTitolo(testo, resto = "") {
   if (temaNothing()) $("#titolo").innerHTML = aPunti(testo, 3.4) + sotto;
   // Col tema «Ultra» il titolo è composto come il fronte della lattina: riga in alto tra due trattini, nome grande e graffiato, parola azzurra spaziata, «Ultra».
   else if (temaUltra()) $("#titolo").innerHTML = `<span class="ultra-zero" id="ultra-zero">${esc(sloganUltra())}</span>
-    <span class="wordmark">${esc(testo === "Registro" ? "REGISTRØ" : testo)}</span><span class="ultra-azzurro">Scuola</span><span class="ultra-nome">Ultra</span>${sotto}`;
+    <span class="wordmark">${esc(testo === "Zaino" ? "ZAINØ" : testo)}</span><span class="ultra-azzurro">Scuola</span><span class="ultra-nome">Ultra</span>${sotto}`;
   else $("#titolo").textContent = resto ? `${testo} ${resto}` : testo;
 }
 
@@ -1135,13 +1135,13 @@ function applica(dati) {
   D = dati;
   fatti = new Set(Object.keys(dati.stato.fatti));
   if (D.vuoto) {
-    impostaTitolo(D.profilo ? D.profilo.nome : "Registro");
+    impostaTitolo(D.profilo ? D.profilo.nome : "Zaino");
     $("#aggiornato").textContent = "Nessun dato ancora scaricato.";
     SCHEDE.forEach((s) => { $(`#tab-${s}`).innerHTML = ""; });
     return;
   }
   caricaVisti();
-  impostaTitolo("Registro", D.studente ? "di " + D.studente : "");
+  impostaTitolo("Zaino", D.studente ? "di " + D.studente : "");
   const t = new Date(D.scaricato);
   $("#aggiornato").textContent = `${D.classe ? "Classe " + D.classe + " · " : ""}aggiornato ${quando(D.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(D.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
   mostra();
@@ -1183,7 +1183,7 @@ function schermo(profili) {
   $("#aggiorna").hidden = profili;
   $("#apri-profili").hidden = profili || !P;
   if (profili) {
-    impostaTitolo("Registro");
+    impostaTitolo("Zaino");
     $("#aggiornato").textContent = P && P.profili.length ? "Scegli con quale profilo entrare." : "Per iniziare crea il tuo profilo.";
     disegnaProfili();
   }
@@ -1392,7 +1392,7 @@ async function entra(id) {
 }
 
 function firma() {
-  return `<p class="muted versione">Parser Compiti ${esc(P.versione || "")} · 100% locale: i dati restano su questo dispositivo.</p>`;
+  return `<p class="muted versione">Zaino ${esc(P.versione || "")} · 100% locale: i dati restano su questo dispositivo.</p>`;
 }
 
 async function apriProfili() {

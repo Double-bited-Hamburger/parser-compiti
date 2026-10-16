@@ -4,6 +4,8 @@
 
 Prima versione stabile: tutta l'interfaccia è stata ridisegnata, scheda per scheda.
 
+- **Nuovo nome: Zaino** (prima «Parser Compiti», e «Registro» in cima alla pagina e sul telefono). L'app sul telefono si aggiorna sopra quella vecchia, con tutti i dati.
+
 - **Scheda «Oggi» ridisegnata**:
   - in alto quattro numeri: compiti da fare, verifiche della settimana, giorni alla prossima verifica, media generale;
   - nel riquadro «Adesso» un conto alla rovescia che scorre secondo per secondo e una barra a tacche (una ogni 5 minuti di lezione) al posto dell'anello;

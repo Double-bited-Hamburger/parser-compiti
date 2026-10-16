@@ -1,5 +1,5 @@
 @echo off
-rem Avvia Parser Compiti su Windows.
+rem Avvia Zaino su Windows.
 rem La prima volta prepara in .venv un ambiente Python tutto suo, con le librerie giuste: niente da installare a mano.
 cd /d "%~dp0"
 set "PY=.venv\Scripts\python.exe"

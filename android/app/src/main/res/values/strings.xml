@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <string name="nome_app">Registro</string>
+    <string name="nome_app">Zaino</string>
     <string name="preparo_pdf">Preparo il PDF…</string>
     <string name="pdf_non_riuscito">Non sono riuscito a creare il PDF.</string>
     <string name="nessuna_app">Nessuna app installata per aprirlo.</string>

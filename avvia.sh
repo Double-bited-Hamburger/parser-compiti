@@ -1,5 +1,5 @@
 #!/bin/sh
-# Avvia Parser Compiti su Linux e macOS: ./avvia.sh (oppure sh avvia.sh).
+# Avvia Zaino su Linux e macOS: ./avvia.sh (oppure sh avvia.sh).
 # La prima volta prepara in .venv un ambiente Python tutto suo, con le librerie giuste: niente da installare nel sistema.
 cd "$(dirname "$0")" || exit 1
 

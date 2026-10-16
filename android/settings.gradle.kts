@@ -14,5 +14,5 @@ dependencyResolutionManagement {
     }
 }
 
-rootProject.name = "Registro"
+rootProject.name = "Zaino"
 include(":app")
