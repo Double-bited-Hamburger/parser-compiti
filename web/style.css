@@ -167,7 +167,7 @@
 :root[data-tema="ultra"] .card { position: relative; overflow: hidden; }
 :root[data-tema="ultra"] .card::after { content: ""; position: absolute; right: -8px; top: -14px; width: 44px; height: 52px;
   background: url("ultra-artiglio.svg") no-repeat center / contain; opacity: .3; pointer-events: none; }
-:root[data-tema="ultra"] .card b, :root[data-tema="ultra"] .adesso .grande, :root[data-tema="ultra"] .conto-num b {
+:root[data-tema="ultra"] .card b, :root[data-tema="ultra"] .adesso .grande {
   font-family: var(--font-titoli); font-weight: 900; font-synthesis: none; transform: skewX(-6deg); transform-origin: left bottom; }
 :root[data-tema="ultra"] .card b { font-size: 32px; }
 :root[data-tema="ultra"] .adesso .grande { font-size: 32px; text-transform: uppercase; }
@@ -581,22 +581,6 @@ ul.consigli .icona.conto small { font-size: 10px; font-weight: 500; }
 .quando-ricerca { display: block; font-size: 12px; }
 mark { background: color-mix(in srgb, var(--warn) 28%, transparent); color: inherit; border-radius: 3px; padding: 0 1px; }
 
-/* Studio */
-.piano { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr)); gap: 16px; align-items: start; }
-.pad-s { padding: 14px 14px 12px; border-bottom: 1px solid var(--line); }
-.pad-s h3 { font-size: 16px; }
-.conto-verifica { display: flex; gap: 16px; align-items: center; }
-.conto-num { display: grid; justify-items: center; gap: 4px; min-width: 56px; flex: none; }
-.conto-num b { font: 700 34px/1 var(--font-titoli); }
-.conto-num span { font-size: 11px; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; }
-.conto-num.urgente, .conto-num.urgente span { color: var(--critical); }
-.conto-info { min-width: 0; }
-.passi-punti { display: flex; gap: 5px; margin-top: 8px; }
-.passi-punti i { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--axis); }
-.passi-punti i.si { background: var(--accent); border-color: var(--accent); }
-.passi-conto { font-size: 12px; }
-ul.todo .passo { display: block; font-size: 13px; }
-ul.todo li.fatto .passo { text-decoration: none; }
 
 /* Testo per il calendario */
 .opzioni { display: flex; gap: 8px 18px; flex-wrap: wrap; margin: 12px 0; }
