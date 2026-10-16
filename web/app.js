@@ -16,6 +16,8 @@ let settimanaOrario = 0;
 let materiaGrafico = "";
 let simMateria = "";
 let simulati = []; // voti ipotetici: {materia, voto}
+let simVoto = null; // il voto che si sta provando nel simulatore, non ancora aggiunto
+let sezioniAperte = new Set(); // sezioni a scomparsa aperte (Voti: grafici, tutti i voti, consigli)
 
 /* ---------- utilità ---------- */
 
@@ -436,33 +438,49 @@ function testoMinimo(s) {
   return `Voto minimo alla prossima prova per restare al 6: <strong>${num(v)}</strong>.`;
 }
 
+// «Che voto mi serve?»: tocchi la materia e il voto e vedi subito le medie che cambierebbero.
+// I voti già aggiunti (simulati) restano in pila; simVoto è quello che stai provando adesso.
 function simulatore() {
   const tutte = [...new Set([...D.materie, ...D.statistiche.map((s) => s.materia)])].sort();
   if (!tutte.includes(simMateria)) simMateria = (D.statistiche[0] || {}).materia || tutte[0] || "";
   const base = Object.fromEntries(D.statistiche.map((s) => [s.materia, { somma: s.somma, n: s.numero }]));
-  const dopo = JSON.parse(JSON.stringify(base));
-  simulati.forEach((x) => { const m = (dopo[x.materia] ||= { somma: 0, n: 0 }); m.somma += x.voto; m.n += 1; });
+  const conVoti = (lista) => {
+    const o = JSON.parse(JSON.stringify(base));
+    lista.forEach((x) => { const m = (o[x.materia] ||= { somma: 0, n: 0 }); m.somma += x.voto; m.n += 1; });
+    return o;
+  };
+  const prova = simVoto == null ? simulati : [...simulati, { materia: simMateria, voto: simVoto }];
+  const pila = conVoti(simulati), dopo = conVoti(prova);
   const mediaDi = (o) => (o && o.n ? o.somma / o.n : null);
   const generale = (o) => { const m = Object.values(o).filter((x) => x.n).map(mediaDi); return m.length ? m.reduce((a, b) => a + b, 0) / m.length : null; };
-  const cur = dopo[simMateria] || { somma: 0, n: 0 };
+  const cur = pila[simMateria] || { somma: 0, n: 0 };
   const serve = (obiettivo) => {
     const v = arrotondaSu(obiettivo * (cur.n + 1) - cur.somma);
     return v > 10 ? "non basta una prova" : v <= 1 ? "qualsiasi voto" : `almeno ${num(v)}`;
   };
-  const freccia = (prima, poi) => (prima == null || poi == null || Math.abs(poi - prima) < 0.005 ? "" : poi > prima ? ` <span class="ok">▲ ${media(poi - prima)}</span>` : ` <span class="bad">▼ ${media(prima - poi)}</span>`);
-  return `<div class="box pad">
-    <div class="sim">
-      <label>Materia<select id="sim-materia">${tutte.map((m) => `<option${m === simMateria ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
-      <label>Voto ipotetico<input id="sim-voto" type="number" min="1" max="10" step="0.25" value="6"></label>
-      <button class="btn" id="sim-aggiungi" type="button">Aggiungi</button>
-      ${simulati.length ? '<button class="btn ghost" id="sim-azzera" type="button">Azzera</button>' : ""}
-    </div>
-    ${simulati.length ? `<div class="chips">${simulati.map((x, i) => `<span class="chip">${esc(x.materia)}: <strong>${num(x.voto)}</strong><button type="button" data-togli="${i}" aria-label="Togli">✕</button></span>`).join("")}</div>` : '<p class="note">Aggiungi uno o più voti ipotetici per vedere come cambierebbero le medie. Non modifica nulla sul registro.</p>'}
-    <div class="sim-ris">
-      <div><span>Media di ${esc(simMateria)}</span><b>${media(mediaDi(cur))}${freccia(mediaDi(base[simMateria]), mediaDi(cur))}</b><span>ora ${media(mediaDi(base[simMateria]))}</span></div>
-      <div><span>Media generale</span><b>${media(generale(dopo))}${freccia(generale(base), generale(dopo))}</b><span>ora ${media(generale(base))}</span></div>
-      <div><span>Alla prova successiva, per avere</span><b style="font-size:15px;line-height:1.7">6 → ${serve(6)}<br>7 → ${serve(7)}<br>8 → ${serve(8)}</b></div>
-    </div></div>`;
+  const ora = mediaDi(base[simMateria]), poi = mediaDi(dopo[simMateria]);
+  const riquadro = (etichetta, prima, adesso) => `<div><span>${etichetta}</span><p><s>${media(prima)}</s> <b class="${adesso != null && adesso < D.sufficienza ? "bad" : "ok"}">${media(adesso)}</b></p></div>`;
+  let frase = "";
+  if (simVoto != null && ora != null && poi != null) {
+    const nome = esc(simMateria), voto = num(simVoto);
+    frase = ora < D.sufficienza && poi >= D.sufficienza ? `<p class="ok">✓ Con un ${voto} ${nome} torna al 6.</p>`
+      : ora >= D.sufficienza && poi < D.sufficienza ? `<p class="bad">Attenzione: con un ${voto} ${nome} scende sotto il 6.</p>`
+      : `<p class="muted">Con un ${voto} ${nome} passa da ${media(ora)} a ${media(poi)}.</p>`;
+  }
+  const altro = simVoto != null && ![4, 5, 6, 7, 8, 9, 10].includes(simVoto) ? simVoto : "";
+  return `<div class="box pad simulatore" id="simulatore">
+    <p class="sim-etichetta">Materia</p>
+    <div class="sim-scelte">${tutte.map((m) => `<button type="button" class="sim-scelta${m === simMateria ? " attiva" : ""}" data-sim="${esc(m)}">${esc(m)}</button>`).join("")}</div>
+    <p class="sim-etichetta">Se alla prossima prendo…</p>
+    <div class="sim-voti">${[4, 5, 6, 7, 8, 9, 10].map((v) => `<button type="button" class="sim-voto${v === simVoto ? " attiva" : ""}" data-sim-voto="${v}">${v}</button>`).join("")}
+      <label class="sim-altro"><span class="sr">Altro voto, anche con i decimali</span><input id="sim-voto" type="number" min="1" max="10" step="0.25" placeholder="altro" value="${altro}"></label></div>
+    ${simVoto == null && !simulati.length ? '<p class="note">Tocca un voto per vedere come cambierebbero le medie. Non modifica nulla sul registro.</p>'
+      : `<div class="sim-esito">${riquadro(esc(simMateria), ora, poi)}${riquadro("Media generale", generale(base), generale(dopo))}</div>${frase}`}
+    ${simulati.length ? `<div class="chips">${simulati.map((x, i) => `<span class="chip">${esc(x.materia)}: <strong>${num(x.voto)}</strong><button type="button" data-togli="${i}" aria-label="Togli">✕</button></span>`).join("")}</div>` : ""}
+    <div class="sim-azioni">${simVoto != null ? '<button class="btn ghost small" id="sim-aggiungi" type="button">+ Aggiungi e prova un altro voto</button>' : ""}
+      ${simulati.length || simVoto != null ? '<button class="btn ghost small" id="sim-azzera" type="button">Azzera</button>' : ""}</div>
+    <p class="note">In ${esc(simMateria)}, alla prova successiva${simulati.length ? " (dopo quelli aggiunti)" : ""}: per avere 6 → ${serve(6)} · 7 → ${serve(7)} · 8 → ${serve(8)}.</p>
+  </div>`;
 }
 
 // Tema «Nothing»: la media di ogni materia come dieci puntini (uno per punto), mezzo acceso per i decimali.
@@ -478,10 +496,64 @@ function votiAPunti(lista) {
   }).join("")}</div>`;
 }
 
+const ANDAMENTO = { su: ["▲", "in salita", "ok"], giu: ["▼", "in calo", "bad"], stabile: ["=", "stabile", "neutro"] };
+
+// Mini-grafico degli ultimi voti di una materia: linea tratteggiata sul 6, punti rossi sotto.
+// Si allarga alla scheda (preserveAspectRatio="none"); i punti sono tratti di lunghezza zero con le estremità tonde, così restano rotondi.
+function sparkVoti(materia) {
+  const voti = D.voti.filter((v) => v.materia === materia && v.valore != null).sort((a, b) => (a.data < b.data ? -1 : 1)).slice(-8);
+  if (!voti.length) return "";
+  const w = 160, h = 44, y = (v) => (6 + (h - 12) * (1 - (Math.min(10, Math.max(3, v)) - 3) / 7)).toFixed(1);
+  const x = (i) => (voti.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (voti.length - 1)).toFixed(1);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Ultimi voti: ${voti.map((v) => num(v.valore)).join(", ")}">
+    <line class="rif" x1="0" x2="${w}" y1="${y(D.sufficienza)}" y2="${y(D.sufficienza)}"/>
+    ${voti.length > 1 ? `<polyline points="${voti.map((v, i) => `${x(i)},${y(v.valore)}`).join(" ")}"/>` : ""}
+    ${voti.map((v, i) => `<path class="${v.valore < D.sufficienza ? "sotto" : ""}" d="M${x(i)} ${y(v.valore)}h0"/>`).join("")}</svg>`;
+}
+
+// Una scheda per materia: tutto quello che c'era nella vecchia tabella, leggibile anche sul telefono.
+function schedaMateria(s) {
+  const [freccia, parola, classe] = ANDAMENTO[s.andamento] || ["·", "pochi voti", "neutro"];
+  const tipi = [["Scritto", s.media_scritto], ["Orale", s.media_orale], ["Pratico", s.media_pratico]].filter(([, v]) => v != null);
+  const valore = media(s.media);
+  return `<div class="materia${s.insufficiente ? " insuff" : ""}">
+    <div class="materia-testa"><strong>${esc(s.materia)}</strong><span class="tag ${classe}" title="Gli ultimi 3 voti confrontati con i precedenti">${freccia} ${parola}</span></div>
+    <div class="materia-media"><div><b class="${s.insufficiente ? "bad" : ""}">${temaNothing() ? aPunti(valore, 4) : valore}</b><span>${plurale(s.numero, "voto", "voti")}</span></div>${sparkVoti(s.materia)}</div>
+    ${tipi.length ? `<div class="materia-tipi">${tipi.map(([n, v]) => `<span>${n} <strong>${media(v)}</strong></span>`).join("")}</div>` : ""}
+    <p class="muted materia-estremi">min ${num(s.minimo)} · max ${num(s.massimo)} · ultimo ${num(s.ultimo)}</p>
+    <p class="materia-serve${s.insufficiente ? " sotto" : ""}">${testoMinimo(s)}${notaRegistro(s)}</p>
+    <button type="button" class="link" data-sim="${esc(s.materia)}">E se prendo… →</button>
+  </div>`;
+}
+
+// «Cosa fare adesso»: le materie sotto il 6, quelle in calo e le verifiche della settimana nelle materie in bilico.
+function azioniVoti() {
+  const voci = new Map();
+  const prova = (s) => `<button type="button" class="link" data-sim="${esc(s.materia)}">Prova nel simulatore →</button>`;
+  D.statistiche.filter((s) => s.insufficiente).forEach((s) => voci.set(s.materia, { s, livello: "critico", testo: testoMinimo(s), azione: prova(s) }));
+  D.statistiche.filter((s) => s.andamento === "giu" && !s.insufficiente)
+    .forEach((s) => voci.set(s.materia, { s, livello: "attenzione", testo: `In calo: gli ultimi voti sono sotto i precedenti. ${testoMinimo(s)}`, azione: prova(s) }));
+  verificheFuture().filter((p) => giorniDa(p.data) <= 7).forEach((p) => {
+    const s = D.statistiche.find((x) => x.materia === p.materia);
+    if (!s || s.media >= D.sufficienza + 0.5) return;
+    const verifica = `<strong>Verifica ${quando(p.data)}.</strong> `;
+    if (voci.has(s.materia)) voci.get(s.materia).testo = verifica + voci.get(s.materia).testo;
+    else voci.set(s.materia, { s, livello: "attenzione", testo: `${verifica}La media è appena sopra il 6: conviene prepararla bene.`, azione: '<button type="button" class="link" data-tab="studio">Apri il piano di studio →</button>' });
+  });
+  const lista = [...voci.values()];
+  if (!lista.length) return '<div class="box"><div class="empty">Tutte le materie sono sopra il 6 e nessuna è in calo. Continua così!</div></div>';
+  return `<div class="azioni-voti">${lista.slice(0, 3).map((v) => `<div class="azione ${v.livello}"><span class="azione-media">${media(v.s.media)}</span>
+    <div><strong>${esc(v.s.materia)}</strong><p>${v.testo}</p>${v.azione}</div></div>`).join("")}</div>
+    ${lista.length > 3 ? `<p class="note">E ${plurale(lista.length - 3, "altra materia", "altre materie")} da tenere d'occhio: le trovi nelle schede qui sotto.</p>` : ""}`;
+}
+
+// Una sezione che si apre con un tocco; resta aperta anche quando la scheda si ridisegna (sezioniAperte).
+const sezione = (nome, testo, conto, corpo) => `<details class="sezione" data-sezione="${nome}"${sezioniAperte.has(nome) ? " open" : ""}>
+  <summary>${testo} <span class="muted">${conto}</span></summary><div class="sezione-corpo">${corpo}</div></details>`;
+
 function schedaVoti() {
   const st = D.statistiche, insufficienti = st.filter((s) => s.insufficiente).length;
   const migliore = st.length ? st[st.length - 1] : null;
-  const frecce = { su: ["↑", "In miglioramento", "ok"], giu: ["↓", "In calo", "bad"], stabile: ["=", "Stabile", ""] };
 
   const perMateria = temaNothing() ? votiAPunti(st.slice().reverse()) : barre(st.slice().reverse().map((s) => ({
     label: s.materia, segmenti: [{ v: s.media, colore: "var(--series-1)" }], val: `<strong>${media(s.media)}</strong>${s.insufficiente ? ' <span class="tag bad">sotto il 6</span>' : ""}`,
@@ -504,32 +576,7 @@ function schedaVoti() {
   const perTipo = barre(D.voti_per_tipo.map((r) => riga(r.tipo, r)), 10, D.sufficienza);
   const perMese = barre(D.voti_per_mese.map((r) => riga(mese(r.mese), r)), 10, D.sufficienza);
   const perPeriodo = barre(D.voti_per_periodo.filter((r) => r.numero).map((r) => riga(r.periodo, r)), 10, D.sufficienza);
-
-  const tabella = st.length ? `<div class="box"><table><thead><tr><th>Materia</th><th class="n">Media</th><th class="n">Voti</th><th class="n">Scritto</th><th class="n">Orale</th><th class="n">Pratico</th><th class="n">Min / Max</th><th class="n">Ultimo</th><th class="n">Andamento</th></tr></thead><tbody>
-    ${st.map((s) => { const [f, titolo, classe] = frecce[s.andamento] || ["·", "Pochi voti per dirlo", ""]; const c = s.insufficiente ? " insuff" : "";
-      return `<tr class="con-sotto${c}"><td><strong>${esc(s.materia)}</strong></td><td class="n ${s.insufficiente ? "bad" : ""}">${media(s.media)}</td><td class="n">${s.numero}</td>
-        <td class="n">${media(s.media_scritto)}</td><td class="n">${media(s.media_orale)}</td><td class="n">${media(s.media_pratico)}</td>
-        <td class="n">${num(s.minimo)} / ${num(s.massimo)}</td><td class="n">${num(s.ultimo)}</td><td class="n ${classe}" title="${titolo}">${f}</td></tr>
-        <tr class="sotto${c}"><td colspan="9">${testoMinimo(s)}${notaRegistro(s)}</td></tr>`; }).join("")}
-    </tbody></table></div>
-    <p class="note">Materie ordinate dalla media più bassa. «Andamento» confronta gli ultimi 3 voti con i precedenti.</p>` : '<div class="box"><div class="empty">Nessun voto registrato finora.</div></div>';
-
-  const fuori = (D.voti_fuori_media || []).map((v) => ({ ...v, fuori: true }));
-  const tutti = [...D.voti, ...fuori].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
-  const elenco = tutti.length ? `<div class="box"><table><thead><tr><th>Data</th><th>Materia</th><th class="n">Voto</th><th>Tipo</th><th>Prova</th></tr></thead><tbody>
-    ${tutti.map((v) => `<tr><td class="when">${dataBreve(v.data)}</td><td>${puntoNuovo(!v.fuori && nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${esc(v.docente)}</div></td>
-      <td class="n ${!v.fuori && v.valore < D.sufficienza ? "bad" : ""}"><strong>${esc(v.codice)}</strong>${v.fuori ? '<div><span class="tag">non fa media</span></div>' : ""}</td><td>${esc(v.tipo) || "—"}</td><td class="muted">${esc(v.descrizione)}</td></tr>`).join("")}
-    </tbody></table></div>${fuori.length ? '<p class="note">I voti segnati «non fa media» (giudizi senza numero o voti esclusi dal docente) non entrano in medie e grafici.</p>' : ""}` : "";
-
-  return `<div class="cards">
-      ${tessera(media(D.media_generale), "media generale")}
-      ${tessera(D.voti.length, "voti registrati")}
-      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
-      ${tessera(migliore ? esc(migliore.materia) : "–", migliore ? `materia migliore (${media(migliore.media)})` : "materia migliore")}
-    </div>
-    <h2>Dove migliorare</h2>${listaConsigli(D.consigli)}
-    <h2>Grafici</h2>
-    <div class="grid2">
+  const grafici = `<div class="grid2">
       ${grafico("Media per materia", temaNothing() ? "Ogni puntino è un punto di media; la linea rossa segna la sufficienza." : "La lineetta verticale segna la sufficienza.", perMateria)}
       <div class="box pad"><div class="controllo"><div><p class="chart-title">Voti nel tempo</p>
         <p class="chart-sub">${materiaGrafico ? "Ogni punto è un voto." : "Ogni punto è un voto; la linea blu è la media progressiva."} La riga grigia più marcata è la sufficienza.</p></div>
@@ -538,10 +585,38 @@ function schedaVoti() {
       ${grafico("Scritto, orale e pratico", "Media per tipo di prova (tra parentesi il numero di voti).", perTipo)}
       ${grafico("Media per mese", "Come sono andati i voti mese per mese.", perMese)}
       ${grafico("Media per periodo", "Voti raggruppati per quadrimestre.", perPeriodo)}
+    </div>`;
+
+  const fuori = (D.voti_fuori_media || []).map((v) => ({ ...v, fuori: true }));
+  const tutti = [...D.voti, ...fuori].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  const elenco = `<div class="box"><table><thead><tr><th>Data</th><th>Materia</th><th class="n">Voto</th><th>Tipo</th><th>Prova</th></tr></thead><tbody>
+    ${tutti.map((v) => `<tr><td class="when">${dataBreve(v.data)}</td><td>${puntoNuovo(!v.fuori && nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${esc(v.docente)}</div></td>
+      <td class="n ${!v.fuori && v.valore < D.sufficienza ? "bad" : ""}"><strong>${esc(v.codice)}</strong>${v.fuori ? '<div><span class="tag">non fa media</span></div>' : ""}</td><td>${esc(v.tipo) || "—"}</td><td class="muted">${esc(v.descrizione)}</td></tr>`).join("")}
+    </tbody></table></div>${fuori.length ? '<p class="note">I voti segnati «non fa media» (giudizi senza numero o voti esclusi dal docente) non entrano in medie e grafici.</p>' : ""}`;
+  const recenti = tutti.filter((v) => !v.fuori).slice(0, 5);
+  const ultimi = recenti.length ? `<div class="box"><ul class="ultimi-voti">${recenti.map((v) => `<li><span class="voto${v.valore < D.sufficienza ? " sotto" : ""}">${esc(v.codice)}</span>
+      <div>${puntoNuovo(nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${[v.tipo, dataLunga(v.data)].filter(Boolean).map(esc).join(" · ")}</div></div></li>`).join("")}</ul></div>`
+    : '<div class="box"><div class="empty">Ancora nessun voto.</div></div>';
+
+  // Due colonne sul PC (a sinistra cosa fare e le materie, a destra simulatore e ultimi voti), una sola sul telefono.
+  return `<div class="cards">
+      ${tessera(media(D.media_generale), "media generale")}
+      ${tessera(D.voti.length, "voti registrati")}
+      ${tessera(insufficienti, "materie sotto il 6", insufficienti ? "bad" : "ok")}
+      ${tessera(migliore ? esc(migliore.materia) : "–", migliore ? `materia migliore (${media(migliore.media)})` : "materia migliore")}
     </div>
-    <h2>Materia per materia</h2>${tabella}
-    <h2>Simulatore «e se prendo…»</h2>${simulatore()}
-    ${elenco ? `<h2>Tutti i voti</h2>${elenco}` : ""}`;
+    <div class="voti-griglia"><div class="voti-colonna">
+      ${titolo("Cosa fare adesso")}${azioniVoti()}
+      ${titolo("Le tue materie", st.length ? "dalla media più bassa" : "")}${st.length ? `<div class="materie">${st.map(schedaMateria).join("")}</div>` : '<div class="box"><div class="empty">Nessun voto registrato finora.</div></div>'}
+    </div><div class="voti-colonna">
+      ${titolo("Che voto mi serve?")}${simulatore()}
+      ${titolo("Ultimi voti")}${ultimi}
+    </div></div>
+    <div class="sezioni">
+      ${D.consigli.length ? sezione("consigli", "Tutti i consigli", D.consigli.length, listaConsigli(D.consigli)) : ""}
+      ${sezione("grafici", "Grafici", 6, grafici)}
+      ${tutti.length ? sezione("voti", "Tutti i voti", tutti.length, elenco) : ""}
+    </div>`;
 }
 
 function schedaCarico() {
@@ -1176,7 +1251,7 @@ async function entra(id) {
     avviso(errore.message, true);
     return;
   }
-  simulati = []; settimanaOrario = 0; materiaGrafico = "";
+  simulati = []; simVoto = null; settimanaOrario = 0; materiaGrafico = "";
   schermo(false);
   mostra();
   await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
@@ -1248,7 +1323,7 @@ document.addEventListener("change", (e) => {
   if (el.dataset.id) spunta(el.dataset.id, el.checked);
   else if (el.id === "nascondi") { nascondiFatti = el.checked; mostra(); }
   else if (el.id === "materia-grafico") { materiaGrafico = el.value; mostra(); }
-  else if (el.id === "sim-materia") { simMateria = el.value; mostra(); }
+  else if (el.id === "sim-voto") { const v = parseFloat(el.value.replace(",", ".")); if (v >= 1 && v <= 10) { simVoto = v; mostra(); } }
   else if (el.name === "registro") { leggiModulo(); disegnaProfili(); }
   else if (el.dataset.cal) { calOpz[el.dataset.cal] = el.checked; aggiornaCalendario(); }
   else if (el.id === "tema") {
@@ -1263,7 +1338,13 @@ document.addEventListener("change", (e) => {
 document.addEventListener("input", (e) => {
   if (e.target.id === "cerca-compiti") { ricerca = e.target.value; aggiornaRicerca(); }
 });
-document.addEventListener("toggle", (e) => { if (e.target.id === "calendario") calendarioAperto = e.target.open; }, true);
+document.addEventListener("toggle", (e) => {
+  if (e.target.id === "calendario") calendarioAperto = e.target.open;
+  const nome = e.target.dataset && e.target.dataset.sezione;
+  if (!nome || sezioniAperte.has(nome) === e.target.open) return; // anche il ridisegno con «open» fa scattare l'evento
+  if (e.target.open) sezioniAperte.add(nome); else sezioniAperte.delete(nome);
+  if (e.target.open && e.target.querySelector("[data-svg]")) mostra(); // da chiusi i grafici erano stati disegnati senza larghezza
+}, true);
 
 document.addEventListener("click", (e) => {
   const el = e.target.closest("button");
@@ -1276,11 +1357,14 @@ document.addEventListener("click", (e) => {
   }
   else if (el.id === "aggiorna") aggiorna();
   else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; mostra(); }
-  else if (el.id === "sim-aggiungi") {
-    const voto = parseFloat($("#sim-voto").value.replace(",", "."));
-    if (voto >= 1 && voto <= 10) { simulati.push({ materia: simMateria, voto }); mostra(); }
+  else if (el.dataset.sim) {
+    const daFuori = !el.closest("#simulatore"); // dalle schede o da «Cosa fare»: si scende fino al simulatore
+    simMateria = el.dataset.sim; simVoto = null; mostra();
+    if (daFuori) $("#simulatore")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  else if (el.id === "sim-azzera") { simulati = []; mostra(); }
+  else if (el.dataset.simVoto) { simVoto = +el.dataset.simVoto; mostra(); }
+  else if (el.id === "sim-aggiungi") { if (simVoto != null) { simulati.push({ materia: simMateria, voto: simVoto }); simVoto = null; mostra(); } }
+  else if (el.id === "sim-azzera") { simulati = []; simVoto = null; mostra(); }
   else if (el.dataset.togli) { simulati.splice(+el.dataset.togli, 1); mostra(); }
   else if (el.id === "apri-profili") apriProfili();
   else if (el.dataset.sync) comandoSync(el.dataset.sync);
