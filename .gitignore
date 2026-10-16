@@ -27,6 +27,5 @@ keystore.properties
 *.aab
 
 # Impostazioni locali degli strumenti di sviluppo
-.claude/
 .vscode/
 .idea/
