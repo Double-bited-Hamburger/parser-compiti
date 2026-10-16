@@ -153,8 +153,10 @@ class Gestore(BaseHTTPRequestHandler):
         return {**dati.elabora(dati_grezzi), **comuni}
 
     def _profili(self):
-        return {"profili": profili.elenco(), "attivo": (dati.PROFILO or {}).get("id"), "ultimo": profili.ultimo(), "registri": profili.REGISTRI,
-                "android": config.ANDROID, "versione": config.VERSIONE}
+        elenco = profili.elenco()
+        studenti = {p["id"]: profili.studenti(p["id"]) for p in elenco if p.get("registro") == "classeviva"}
+        return {"profili": elenco, "attivo": (dati.PROFILO or {}).get("id"), "ultimo": profili.ultimo(), "registri": profili.REGISTRI,
+                "studenti": {i: s for i, s in studenti.items() if s}, "android": config.ANDROID, "versione": config.VERSIONE}
 
     @protetto
     def do_GET(self):

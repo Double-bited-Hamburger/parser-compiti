@@ -19,6 +19,8 @@ from archivio import ErroreRegistro
 ARGO = {"nome": "Mario", "registro": "argo", "scuola": "SC12345", "utente": "mario.r", "password": "segreta-argo"}
 NUVOLA = {"nome": "Amico", "registro": "nuvola", "utente": "amico", "password": "segreta-nuvola",
           "untis": {"server": "https://Scuola.WebUntis.com/", "scuola": "scuola", "classe": "3A"}}
+CLASSEVIVA = {"nome": "Rossi", "registro": "classeviva", "utente": "genitore@example.com", "password": "segreta-cv"}
+FIGLI = [{"ident": "S1234567X", "name": "MARIO ROSSI"}, {"ident": "S1111111X", "name": "LUCIA ROSSI"}]
 
 def _ora(numero, *argomenti):
     return {"numeroOra": numero, "inizioOra": f"{7 + numero:02d}:00", "fineOra": f"{8 + numero:02d}:00", "giorno": "", "argomenti": list(argomenti)}
@@ -173,6 +175,42 @@ class Profili(Base):
             dati.segna_compito("x", True)
         with self.assertRaises(ErroreRegistro):
             dati.scarica()
+
+    def test_studente_classeviva(self):
+        c = profili.salva(dict(CLASSEVIVA))
+        self.assertEqual(c["studente"], "")
+        self.assertEqual(profili.salva({**ARGO, "studente": "S1234567X"})["studente"], "")  # solo per ClasseViva
+        with self.assertRaises(profili.ProfiloNonValido):
+            profili.salva({**CLASSEVIVA, "studente": "../x"}, c["id"])
+        self.assertEqual(profili.studenti(c["id"]), [])
+        profili.annota_studenti(c["id"], FIGLI)
+        self.assertEqual(profili.studenti(c["id"]), FIGLI)
+
+        # Scegliere il primo, che era già quello mostrato, non butta i dati scaricati; passare all'altro studente sì.
+        dati.attiva(c)
+        dati._scrivi(dati.CACHE, {"dashboard": {}})
+        profili.salva({**CLASSEVIVA, "studente": "S1234567X", "password": ""}, c["id"])
+        self.assertTrue(dati.CACHE.exists())
+        profili.salva({**CLASSEVIVA, "studente": "S1111111X", "password": ""}, c["id"])
+        self.assertFalse(dati.CACHE.exists())
+        self.assertEqual((profili.trova(c["id"])["studente"], profili.password(c["id"])), ("S1111111X", "segreta-cv"))
+
+        # Con un altro account l'elenco degli studenti non vale più; con uno studente solo non c'è elenco.
+        profili.salva({**CLASSEVIVA, "utente": "altro@example.com", "password": ""}, c["id"])
+        self.assertEqual(profili.studenti(c["id"]), [])
+        profili.annota_studenti(c["id"], FIGLI)
+        profili.annota_studenti(c["id"], [])
+        self.assertFalse((profili.cartella(c["id"]) / "studenti.json").exists())
+
+    def test_scarica_classeviva_con_lo_studente_scelto(self):
+        c = profili.salva({**CLASSEVIVA, "studente": "S1111111X"})
+        with mock.patch.object(dati, "ClassevivaClient") as cv, mock.patch.object(dati.classeviva_adatta, "converti", return_value=({}, {"voti": []})):
+            cv.return_value.scelte = FIGLI
+            cv.return_value.scarica.return_value = {}
+            dati.attiva(c)
+            dati.scarica()
+        cv.assert_called_once_with("genitore@example.com", "segreta-cv", "S1111111X")
+        self.assertEqual(profili.studenti(c["id"]), FIGLI)
 
     def test_scarica_usa_il_registro_del_profilo(self):
         a, n = profili.salva(dict(ARGO)), profili.salva(dict(NUVOLA))
@@ -419,6 +457,15 @@ class ServerProfili(Base):
         self.assertEqual((elenco["attivo"], [p["id"] for p in elenco["profili"]]), (None, [a]))
         self.assertIsNone(self.chiama("POST", "/api/profili/attiva", {"id": None})[1]["attivo"])
         self.assertFalse((self.cartella / "errori.log").exists())
+
+    def test_studenti_classeviva_nell_elenco_dei_profili(self):
+        self.chiama("POST", "/api/profili", {"profilo": ARGO})
+        c = self.chiama("POST", "/api/profili", {"profilo": CLASSEVIVA})[1]["salvato"]
+        self.assertEqual(self.chiama("GET", "/api/profili")[1]["studenti"], {})
+        profili.annota_studenti(c, FIGLI)
+        self.assertEqual(self.chiama("GET", "/api/profili")[1]["studenti"], {c: FIGLI})
+        stato, risposta = self.chiama("POST", "/api/profili", {"id": c, "profilo": {**CLASSEVIVA, "studente": "S1111111X", "password": ""}})
+        self.assertEqual((stato, next(p for p in risposta["profili"] if p["id"] == c)["studente"]), (200, "S1111111X"))
 
     def test_ricerca_scuole_webuntis(self):
         trovate = {"result": {"schools": [{"displayName": "ITI Esempio", "address": "Bergamo", "server": "esempio.webuntis.com", "loginName": "esempio"}, {"displayName": "senza server"}]}}

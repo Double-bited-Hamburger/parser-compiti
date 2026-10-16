@@ -135,10 +135,10 @@ def login_giusto(corpo):
 
 
 class Client(unittest.TestCase):
-    def client(self, risposte, password="segreta"):
+    def client(self, risposte, password="segreta", scelta=""):
         sessione = SessioneFinta(risposte)
         with mock.patch.object(classeviva_client.requests, "Session", lambda: sessione):
-            return ClassevivaClient("S1234567X", password), sessione
+            return ClassevivaClient("S1234567X", password, scelta), sessione
 
     def test_login_e_intestazioni(self):
         client, sessione = self.client({"login": login_giusto})
@@ -154,17 +154,48 @@ class Client(unittest.TestCase):
         with self.assertRaisesRegex(ClassevivaError, "Login rifiutato"):
             client.login()
 
-    def test_account_con_piu_studenti(self):
+    @staticmethod
+    def login_con_scelte(*scelte):
         def login(corpo):
             if "ident" not in corpo:
-                return Risposta(200, {"choices": [{"ident": "G7654321Y", "name": "Genitore"}, {"ident": "S1234567X", "name": "MARIO ROSSI"},
-                                                  {"ident": "S1111111X", "name": "LUCIA ROSSI"}]})
+                return Risposta(200, {"choices": list(scelte)})
             return login_giusto({**corpo, "pass": "segreta"})
+        return login
 
-        client, sessione = self.client({"login": login})
+    GENITORE = {"ident": "G7654321Y", "name": "Genitore"}
+    MARIO, LUCIA = {"ident": "S1234567X", "name": "MARIO ROSSI"}, {"ident": "S1111111X", "name": "LUCIA ROSSI"}
+
+    def test_account_con_piu_studenti(self):
+        client, sessione = self.client({"login": self.login_con_scelte(self.GENITORE, self.MARIO, self.LUCIA)})
         client.login()
         self.assertEqual(sessione.chiamate[1][2]["ident"], "S1234567X")  # il primo studente, non il genitore
         self.assertIn("MARIO ROSSI", client.avviso)
+        self.assertIn("modificando il profilo", client.avviso)
+        self.assertEqual(client.scelte, [self.MARIO, self.LUCIA])  # il genitore non si può scegliere: non ha voti
+
+    def test_studente_scelto_nel_profilo(self):
+        client, sessione = self.client({"login": self.login_con_scelte(self.GENITORE, self.MARIO, self.LUCIA)}, scelta="S1111111X")
+        client.login()
+        self.assertEqual(sessione.chiamate[1][2]["ident"], "S1111111X")
+        self.assertIsNone(client.avviso)
+        self.assertEqual(len(client.scelte), 2)
+
+    def test_studente_scelto_non_piu_collegato(self):
+        client, sessione = self.client({"login": self.login_con_scelte(self.MARIO, self.LUCIA)}, scelta="S9999999X")
+        client.login()
+        self.assertEqual(sessione.chiamate[1][2]["ident"], "S1234567X")
+        self.assertIn("non è più collegato", client.avviso)
+
+    def test_genitore_con_un_solo_studente(self):
+        client, sessione = self.client({"login": self.login_con_scelte(self.GENITORE, self.MARIO)})
+        client.login()
+        self.assertEqual(sessione.chiamate[1][2]["ident"], "S1234567X")
+        self.assertEqual((client.scelte, client.avviso), ([], None))  # niente da scegliere
+
+    def test_studente_scelto_ignorato_se_l_account_e_di_uno_studente(self):
+        client, sessione = self.client({"login": login_giusto}, scelta="S1111111X")
+        client.login()
+        self.assertEqual((len(sessione.chiamate), client.studente, client.scelte, client.avviso), (1, "1234567", [], None))
 
     def test_scarica(self):
         risposte = {

@@ -268,7 +268,7 @@ tr.con-sotto td { border-bottom: 0; padding-bottom: 4px; }
 .modulo fieldset { border: 0; padding: 0; margin: 0 0 22px; min-width: 0; }
 .modulo legend { font-weight: 600; padding: 0; margin-bottom: 10px; }
 .modulo label { display: grid; gap: 4px; font-size: 13px; color: var(--muted); margin-bottom: 12px; }
-.modulo input:not([type="radio"]) { font: inherit; padding: 8px 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--card); color: var(--text); width: 100%; }
+.modulo input:not([type="radio"]), .modulo select { font: inherit; padding: 8px 10px; border-radius: var(--r); border: 1px solid var(--line); background: var(--card); color: var(--text); width: 100%; }
 .scelte { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr)); gap: 12px; }
 .modulo label.scelta { display: flex; gap: 10px; align-items: flex-start; padding: 12px 14px; border: 1px solid var(--line); border-radius: var(--r-box); cursor: pointer; margin: 0; color: var(--text); font-size: 15px; }
 .modulo label.scelta.attiva { border-color: var(--accent); background: var(--accent-soft); }

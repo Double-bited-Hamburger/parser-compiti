@@ -40,12 +40,14 @@ def _elenco(risposta, chiave):
 
 
 class ClassevivaClient:
-    def __init__(self, utente, password):
+    def __init__(self, utente, password, scelta=""):
         self.utente = utente
         self.password = password
+        self.scelta = scelta  # lo studente scelto nel profilo (ident), per gli account con più studenti
         self.session = requests.Session()
         self.session.headers.update(INTESTAZIONI)
         self.studente = None
+        self.scelte = []  # gli studenti collegati all'account, se più d'uno: [{"ident", "name"}]
         self.avviso = None  # per esempio: account di un genitore con più figli
 
     def _accedi(self, identita=None):
@@ -65,10 +67,18 @@ class ClassevivaClient:
         dati = self._accedi()
         scelte = [s for s in dati.get("choices") or [] if isinstance(s, dict) and isinstance(s.get("ident"), str)]
         if not dati.get("token") and scelte:
-            # Un account collegato a più studenti (per esempio un genitore con due figli): per ora si usa il primo.
-            scelta = next((s for s in scelte if s["ident"].upper().startswith("S")), scelte[0])
-            if len(scelte) > 1:
-                self.avviso = f"L'account ha più studenti: viene mostrato {scelta.get('name') or scelta['ident']}."
+            # Un account collegato a più studenti (per esempio un genitore con due figli): si usa quello scelto nel profilo,
+            # altrimenti il primo. Tra le scelte può esserci anche il genitore stesso, che non ha voti: si tengono gli studenti.
+            studenti = [s for s in scelte if s["ident"].upper().startswith("S")] or scelte
+            self.scelte = [{"ident": s["ident"], "name": s["name"] if isinstance(s.get("name"), str) else ""} for s in studenti] if len(studenti) > 1 else []
+            scelta = next((s for s in studenti if s["ident"] == self.scelta), None)
+            if scelta is None:
+                scelta = studenti[0]
+                nome = scelta.get("name") or scelta["ident"]
+                if self.scelta:
+                    self.avviso = f"Lo studente scelto nel profilo non è più collegato all'account: viene mostrato {nome}."
+                elif len(studenti) > 1:
+                    self.avviso = f"L'account ha più studenti: viene mostrato {nome}. Puoi sceglierne un altro modificando il profilo."
             dati = self._accedi(scelta["ident"])
         token, identita = dati.get("token"), dati.get("ident")
         if not isinstance(token, str) or not token or not isinstance(identita, str):
