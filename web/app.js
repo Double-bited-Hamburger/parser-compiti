@@ -5,10 +5,10 @@ const GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "ve
 const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 const MESI_LUNGHI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 const MINUTI_VALIDITA = 30; // oltre questa età i dati vengono riscaricati all'apertura
-const SCHEDE = ["oggi", "agenda", "compiti", "studio", "orario", "voti", "carico", "assenze"];
+const SCHEDE = ["oggi", "agenda", "compiti", "orario", "voti", "carico", "assenze"];
 
 let D = null; // dati elaborati dal server
-let fatti = new Set(); // id dei compiti spuntati (e dei passi del piano di studio, che iniziano con «studio-»)
+let fatti = new Set(); // id dei compiti spuntati
 let scheda = "oggi";
 let ricerca = ""; // testo cercato nella scheda Compiti
 let nascondiFatti = false;
@@ -252,7 +252,7 @@ const barraTacche = (pezzi, etichetta) => `<div class="tacche" role="img" aria-l
 // hanno un puntino rosso finché non esci dalla scheda che li mostra. Alla primissima apertura tutto conta come già visto.
 const chiaveVoto = (v) => `${v.data}|${v.materia}|${v.codice}|${v.descrizione}`;
 const chiaveVerifica = (p) => `${p.data}|${p.materia}|${p.testo}`;
-const VISTE_DA = { agenda: ["verifiche", "compiti"], compiti: ["compiti"], studio: ["verifiche"], voti: ["voti"] };
+const VISTE_DA = { agenda: ["verifiche", "compiti"], compiti: ["compiti"], voti: ["voti"] };
 let visti = null; // {voti, verifiche, compiti}: Set di chiavi
 
 const chiaviAttuali = () => ({ voti: D.voti.map(chiaveVoto), verifiche: verificheFuture().map(chiaveVerifica), compiti: D.compiti.map((c) => c.id) });
@@ -366,10 +366,10 @@ function calendarioMese(impegni) {
 // Cosa c'è nel giorno scelto sul calendario; i compiti si spuntano da qui come nella scheda Compiti.
 function giornoScelto(impegni) {
   const x = impegni.get(giornoAgenda) || { verifiche: [], promemoria: [], compiti: [], variazioni: [] };
-  const n = giorniDa(giornoAgenda), riga = (classe, titolo, sotto, coda = "") => `<li class="evento ${classe}"><i aria-hidden="true"></i><div>${titolo}<div class="muted">${sotto}</div></div>${coda}</li>`;
+  const riga = (classe, titolo, sotto, coda = "") => `<li class="evento ${classe}"><i aria-hidden="true"></i><div>${titolo}<div class="muted">${sotto}</div></div>${coda}</li>`;
   const eventi = [
     ...x.verifiche.map((p) => riga("v", `${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia) || "Verifica"}</strong>`,
-      [esc(p.testo), esc(p.orario), esc(aulaPromemoria(p))].filter(Boolean).join(" · ") + (n >= 1 ? ' · <button type="button" class="link" data-tab="studio">piano di studio →</button>' : ""), '<span class="tag bad">verifica</span>')),
+      [esc(p.testo), esc(p.orario), esc(aulaPromemoria(p))].filter(Boolean).join(" · "), '<span class="tag bad">verifica</span>')),
     ...x.variazioni.map((l) => riga("x", `<strong>${esc(l.materia)}</strong>`, `${l.inizio}–${l.fine}${dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}`, `<span class="tag${l.nuova || l.stato === "annullata" ? " bad" : ""}">${esc(l.stato)}</span>`)),
     ...x.promemoria.map((p) => riga("p", `<strong>${esc(p.materia) || "Promemoria"}</strong>`, [esc(p.testo), esc(p.orario)].filter(Boolean).join(" · "))),
   ].join("");
@@ -629,7 +629,7 @@ function azioniVoti() {
     if (!s || s.media >= D.sufficienza + 0.5) return;
     const verifica = `<strong>Verifica ${quando(p.data)}.</strong> `;
     if (voci.has(s.materia)) voci.get(s.materia).testo = verifica + voci.get(s.materia).testo;
-    else voci.set(s.materia, { s, livello: "attenzione", testo: `${verifica}La media è appena sopra il 6: conviene prepararla bene.`, azione: '<button type="button" class="link" data-tab="studio">Apri il piano di studio →</button>' });
+    else voci.set(s.materia, { s, livello: "attenzione", testo: `${verifica}La media è appena sopra il 6: conviene prepararla bene.`, azione: prova(s) });
   });
   const lista = [...voci.values()];
   if (!lista.length) return '<div class="box"><div class="empty">Tutte le materie sono sopra il 6 e nessuna è in calo. Continua così!</div></div>';
@@ -788,71 +788,9 @@ function schedaAssenze() {
     </div>`;
 }
 
-/* ---------- piano di studio ---------- */
-
-// Quattro passi brevi prima di ogni verifica: si studia scrivendo poco e a libro chiuso, così si capisce invece di ricopiare.
-const PASSI_STUDIO = [
-  { prima: 4, titolo: "Fai la mappa", testo: "Sfoglia gli argomenti e scrivi l'elenco di cosa devi sapere: una riga per argomento, niente di più.", min: 20 },
-  { prima: 3, titolo: "Scrivi a libro chiuso", testo: "Per ogni argomento scrivi 3–5 righe senza guardare, poi controlla sul libro e correggi con un altro colore.", min: 40 },
-  { prima: 2, titolo: "Interrogati", testo: "Inventa 5–10 domande e rispondi senza guardare. Segna quelle che sbagli.", min: 30 },
-  { prima: 1, titolo: "Ripasso finale", testo: "Ripeti ad alta voce e rivedi solo le domande che avevi sbagliato.", min: 20 },
-];
+/* ---------- verifiche ---------- */
 
 const verificheFuture = () => D.promemoria.filter((p) => p.verifica && giorniDa(p.data) >= 0);
-
-// I passi di ogni verifica in arrivo. Un passo il cui giorno è già passato (verifica segnata tardi) slitta a oggi.
-function pianoStudio() {
-  const passi = [];
-  verificheFuture().filter((p) => giorniDa(p.data) >= 1).forEach((p) => {
-    const sigla = piega(p.materia).replace(/[^a-z0-9]+/g, "").slice(0, 24) || "verifica";
-    PASSI_STUDIO.forEach((s) => {
-      const previsto = spostaGiorni(p.data, -s.prima);
-      passi.push({ ...s, id: `studio-${p.data}-${sigla}-${s.prima}`, verifica: p, giorno: previsto < D.oggi ? D.oggi : previsto, slittato: previsto < D.oggi });
-    });
-  });
-  return passi.sort((a, b) => (a.giorno < b.giorno ? -1 : a.giorno > b.giorno ? 1 : b.prima - a.prima));
-}
-
-function listaPassi(passi, conMateria) {
-  return `<ul class="todo">${passi.map((s) => `<li class="${fatti.has(s.id) ? "fatto" : ""}"><label>
-    <input type="checkbox" data-id="${s.id}" ${fatti.has(s.id) ? "checked" : ""}>
-    <span>${conMateria ? `<strong>${esc(s.verifica.materia)}</strong> — ` : ""}<b>${s.titolo}</b> <span class="muted">(${s.min} min)</span>
-      <span class="muted passo">${s.testo}</span></span></label></li>`).join("")}</ul>`;
-}
-
-function schedaStudio() {
-  const passi = pianoStudio();
-  const oggi = passi.filter((s) => s.giorno === D.oggi);
-  const daFareOggi = oggi.filter((s) => !fatti.has(s.id));
-  const perVerifica = new Map();
-  passi.forEach((s) => { const k = `${s.verifica.data}|${s.verifica.materia}`; perVerifica.set(k, [...(perVerifica.get(k) || []), s]); });
-  const verificaOggi = verificheFuture().filter((p) => giorniDa(p.data) === 0);
-  if (!perVerifica.size) return `${verificaOggi.length ? `<div class="avviso">Oggi hai ${plurale(verificaOggi.length, "verifica", "verifiche")}: ${verificaOggi.map((p) => esc(p.materia)).join(", ")}. In bocca al lupo!</div>` : ""}
-    <div class="box" style="margin-top:20px"><div class="empty">Nessuna verifica in arrivo: niente da pianificare. Quando ne compare una sul registro, qui trovi il piano giorno per giorno.</div></div>`;
-  const schede = [...perVerifica.values()].map((lista) => {
-    const p = lista[0].verifica, fattiN = lista.filter((s) => fatti.has(s.id)).length;
-    const perGiorno = new Map();
-    lista.forEach((s) => perGiorno.set(s.giorno, [...(perGiorno.get(s.giorno) || []), s]));
-    const n = giorniDa(p.data);
-    // Conto alla rovescia grande (a punti col tema «Nothing») e un puntino per ogni passo, pieno quando è spuntato.
-    return `<div class="box"><div class="pad-s conto-verifica">
-        <div class="conto-num${n <= 1 ? " urgente" : ""}">${temaNothing() ? aPunti(String(n).padStart(2, "0"), 5) : `<b>${n}</b>`}<span>${n === 1 ? "giorno" : "giorni"}</span></div>
-        <div class="conto-info"><h3>${esc(p.materia) || "Verifica"}</h3>
-          <p class="muted" style="margin:2px 0 0">${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${esc(p.testo)}</p>
-          <div class="passi-punti" aria-hidden="true">${lista.map((s) => `<i class="${fatti.has(s.id) ? "si" : ""}"></i>`).join("")}</div>
-          <span class="muted passi-conto">${fattiN} di ${lista.length} passi</span></div></div>
-      ${[...perGiorno].map(([g, s]) => `<div class="day">${g === D.oggi ? "Oggi" : dataLunga(g)}${g === D.oggi && s.some((x) => x.slittato) ? ' <span class="muted">· recupero: la verifica è stata segnata da poco</span>' : ""}</div>${listaPassi(s, false)}`).join("")}</div>`;
-  }).join("");
-  return `<div class="cards">
-      ${tessera(perVerifica.size, perVerifica.size === 1 ? "verifica da preparare" : "verifiche da preparare")}
-      ${tessera(daFareOggi.length, "passi da fare oggi", daFareOggi.length ? "" : "ok")}
-      ${tessera(daFareOggi.reduce((t, s) => t + s.min, 0) + " min", "di studio oggi, circa")}
-    </div>
-    <h2>Oggi</h2>${oggi.length ? `<div class="box">${listaPassi(oggi, true)}</div>` : '<div class="box"><div class="empty">Oggi niente studio in programma.</div></div>'}
-    <h2>Verifica per verifica</h2><div class="piano">${schede}</div>
-    <p class="note">Ogni verifica ha 4 passi brevi nei giorni prima: mappa degli argomenti, poche righe scritte a libro chiuso, domande senza guardare, ripasso degli errori.
-      Scrivere poco e senza il libro aperto ti obbliga a capire invece di ricopiare. Le spunte si sincronizzano con il telefono come quelle dei compiti.</p>`;
-}
 
 /* ---------- oggi ---------- */
 
@@ -937,8 +875,6 @@ function schedaOggi() {
   const perOggi = D.compiti.filter((c) => c.consegna === D.oggi && !fatti.has(c.id));
   const perProssimo = D.compiti.filter((c) => c.consegna === prossimo);
   const fattiProssimo = perProssimo.filter((c) => fatti.has(c.id)).length;
-  const studio = pianoStudio().filter((s) => s.giorno === D.oggi);
-  const minStudio = studio.reduce((t, s) => t + s.min, 0), minFatti = studio.filter((s) => fatti.has(s.id)).reduce((t, s) => t + s.min, 0);
   const future = verificheFuture().sort((a, b) => (a.data < b.data ? -1 : 1));
   const verifiche = future.filter((p) => giorniDa(p.data) <= 7);
   const nuoviVoti = D.voti.filter((v) => giorniDa(v.data) >= -3).sort((a, b) => (a.data < b.data ? 1 : -1));
@@ -947,7 +883,7 @@ function schedaOggi() {
   const gg = future.length ? giorniDa(future[0].data) : null;
   const d = giorno(D.oggi);
   const titoloProssimo = giorniDa(prossimo) === 1 ? "Per domani" : `Per ${dataLunga(prossimo)}`;
-  // Tre colonne sul PC, una sola sul telefono (in quest'ordine): adesso e orario; compiti e studio; verifiche e voti.
+  // Tre colonne sul PC, una sola sul telefono (in quest'ordine): adesso e orario; compiti; verifiche e voti.
   return `<p class="oggi-data">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI_LUNGHI[d.getMonth()]}</p>
     <div class="cards oggi-numeri">
       ${tessera(daFare, "compiti da fare")}
@@ -962,7 +898,6 @@ function schedaOggi() {
       ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
       ${titolo(titoloProssimo, perProssimo.length ? `${fattiProssimo} di ${perProssimo.length} fatti` : "")}${listaCompiti(perProssimo, "Niente da consegnare.",
         perProssimo.length ? `<div class="box-barra">${barra(fattiProssimo / perProssimo.length, "fatti")}</div>` : "")}
-      ${studio.length ? `${titolo("Da studiare oggi", `${minFatti} di ${minStudio} min`)}<div class="box"><div class="box-barra">${barraTacche(studio.map((s) => [s.min, fatti.has(s.id) ? "si" : ""]), `${minFatti} minuti fatti su ${minStudio}`)}</div>${listaPassi(studio, true)}</div>` : ""}
     </div><div class="oggi-colonna">
       ${titolo("Verifiche nei prossimi 7 giorni")}${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => { const n = giorniDa(p.data); return `<li class="${n <= 1 ? "critico" : "attenzione"}">
         <span class="icona conto" aria-hidden="true">${n === 0 ? "<small>oggi</small>" : `<b>${n}</b><small>${n === 1 ? "giorno" : "giorni"}</small>`}</span>
@@ -1016,7 +951,7 @@ function aggiornaRicerca() {
 const chiaveCalendario = () => `calendario-${(P && P.attivo) || ""}`;
 function giaCopiati() { try { return new Set(JSON.parse(localStorage.getItem(chiaveCalendario()) || "[]")); } catch { return new Set(); } }
 
-const calOpz = { verifiche: true, compiti: true, studio: false, nuovi: true };
+const calOpz = { verifiche: true, compiti: true, nuovi: true };
 let calendarioAperto = false;
 let vociMostrate = []; // le voci che sono ora nel riquadro di testo
 
@@ -1029,9 +964,6 @@ function vociCalendario() {
   });
   if (calOpz.compiti) D.compiti.filter((c) => giorniDa(c.consegna) >= 0 && !fatti.has(c.id)).forEach((c) => {
     voci.push([`c|${c.id}`, c.consegna, `- Compito di ${c.materia} — da consegnare ${dataCompleta(c.consegna)} (tutto il giorno): ${c.testo}`]);
-  });
-  if (calOpz.studio) pianoStudio().filter((s) => !fatti.has(s.id)).forEach((s) => {
-    voci.push([`s|${s.id}`, s.giorno, `- Studio ${s.verifica.materia}: ${s.titolo} (${s.min} min) — ${dataCompleta(s.giorno)}, nel pomeriggio. ${s.testo}`]);
   });
   const solo = calOpz.nuovi ? giaCopiati() : new Set();
   return voci.filter(([k]) => !solo.has(k)).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
@@ -1047,7 +979,7 @@ function riquadroCalendario() {
   const opzione = (k, nome) => `<label><input type="checkbox" data-cal="${k}" ${calOpz[k] ? "checked" : ""}> ${nome}</label>`;
   return `<details class="sezione calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Copia nel calendario di Google</summary><div class="sezione-corpo">
     <p class="note">Copia il testo e incollalo nell'assistente di Google Calendar (o in Gemini): crea lui gli eventi. Con «Solo le novità» non ti ritrovi doppioni.</p>
-    <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("studio", "Piano di studio")}${opzione("nuovi", "Solo le novità")}</div>
+    <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("nuovi", "Solo le novità")}</div>
     <textarea id="cal-testo" readonly aria-label="Testo per il calendario">${esc(testoCalendario(vociMostrate))}</textarea>
     <div class="segmenti" style="margin-top:10px"><button type="button" class="btn small" id="cal-copia">Copia</button>
       <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></div></details>`;
@@ -1069,7 +1001,7 @@ async function copiaCalendario() {
   setTimeout(() => { if ($("#cal-copia")) $("#cal-copia").textContent = "Copia"; }, 2000);
 }
 
-const CONTENUTO = { oggi: schedaOggi, agenda: schedaAgenda, compiti: schedaCompiti, studio: schedaStudio, orario: schedaOrario, voti: schedaVoti, carico: schedaCarico, assenze: schedaAssenze };
+const CONTENUTO = { oggi: schedaOggi, agenda: schedaAgenda, compiti: schedaCompiti, orario: schedaOrario, voti: schedaVoti, carico: schedaCarico, assenze: schedaAssenze };
 
 /* ---------- disegno e interazione ---------- */
 
