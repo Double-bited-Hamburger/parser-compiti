@@ -15,7 +15,7 @@ Gira sul PC (Windows, ma anche Linux e macOS) e come app Android. Le due copie s
 | | |
 | --- | --- |
 | 📱 **Android** | **[Scarica l'APK (0.2.0 beta)](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.2.0-beta/parser-compiti-0.2.0-beta.apk)**: aprilo dal telefono e consenti l'installazione. Serve Android 7 o successivo. |
-| 💻 **PC** | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.2.0-beta) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
+| 💻 **PC** (Windows, Linux, macOS) | Scarica il codice dalla [pagina della versione](../../releases/tag/v0.2.0-beta) («Source code (zip)») e segui [Installazione sul PC](#installazione-sul-pc). |
 
 Tutte le versioni, con l'impronta SHA-256 di ogni APK, sono nelle [Release](../../releases). Installa l'APK solo da qui: uno preso altrove potrebbe essere stato modificato per rubare le password.
 
@@ -51,17 +51,25 @@ Orario: WebUntis. Se la tua scuola usa altro, apri una issue.
 
 ## Installazione sul PC
 
-Serve [Python](https://www.python.org/downloads/) 3.12 o successivo.
+Funziona su Windows, Linux e macOS. Serve [Python](https://www.python.org/downloads/) 3.12 o successivo.
 
-```
-pip install -r requirements.txt
-```
+1. Scarica il codice dalla [pagina della versione](../../releases/tag/v0.2.0-beta) («Source code (zip)») e scompattalo in una cartella.
+2. Avvialo:
+   - **Windows**: doppio clic su `avvia.bat`;
+   - **Linux e macOS**: da un terminale aperto nella cartella, `./avvia.sh` (oppure `sh avvia.sh`).
 
-Poi doppio clic su `avvia.bat` (oppure `py main.py`, su Linux/macOS `python3 main.py`). Si apre il browser con la pagina dell'app; la finestra nera deve restare aperta mentre la usi. Al primo avvio crei un profilo (registro, utente, password, e facoltativamente la scuola WebUntis). Puoi avere più profili, per esempio per fratelli.
+La prima volta prepara nella sottocartella `.venv` un ambiente Python tutto suo, con le librerie che gli servono: ci vuole qualche minuto e serve Internet. Non installa nulla nel sistema e non tocca gli altri programmi Python. Dalla volta dopo parte subito; dopo un aggiornamento reinstalla da solo le librerie se sono cambiate. Per disinstallare basta cancellare la cartella.
 
-La pagina risponde solo al collegamento che apre `avvia.bat`, che contiene un gettone segreto: gli altri programmi del computer e gli altri utenti non possono leggere i tuoi dati. Se apri a mano `http://127.0.0.1:8765` vedrai un messaggio che ti chiede di usare `avvia.bat`.
+Si apre il browser con la pagina dell'app; la finestra del terminale deve restare aperta mentre la usi. Al primo avvio crei un profilo (registro, utente, password, e facoltativamente la scuola WebUntis). Puoi avere più profili, per esempio per fratelli.
 
-Altre opzioni: `py main.py --help`.
+La pagina risponde solo al collegamento che apre lo script di avvio, che contiene un gettone segreto: gli altri programmi del computer e gli altri utenti non possono leggere i tuoi dati. Se apri a mano `http://127.0.0.1:8765` vedrai un messaggio che ti chiede di usare `avvia.bat` o `avvia.sh`.
+
+Altre opzioni: `avvia.bat --help` oppure `./avvia.sh --help`.
+
+**Se non parte:**
+- *Debian e Ubuntu*: se dice che non riesce a creare l'ambiente Python, installa prima `sudo apt install python3-venv`. Ubuntu 22.04 ha Python 3.10, troppo vecchio: serve Ubuntu 24.04 o un Python più recente.
+- *macOS*: il `python3` che arriva con gli strumenti di Xcode è troppo vecchio; installa Python da [python.org](https://www.python.org/downloads/) o con Homebrew (`brew install python`).
+- *Linux*: le password vanno nel portachiavi del sistema (GNOME Portachiavi o KWallet). Se non c'è, il programma lo dice all'avvio e le tiene in un file della cartella `profili`.
 
 ## App Android
 
