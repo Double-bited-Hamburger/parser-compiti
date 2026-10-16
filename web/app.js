@@ -5,17 +5,27 @@ const GIORNI = ["domenica", "lunedì", "martedì", "mercoledì", "giovedì", "ve
 const MESI = ["gen", "feb", "mar", "apr", "mag", "giu", "lug", "ago", "set", "ott", "nov", "dic"];
 const MESI_LUNGHI = ["gennaio", "febbraio", "marzo", "aprile", "maggio", "giugno", "luglio", "agosto", "settembre", "ottobre", "novembre", "dicembre"];
 const MINUTI_VALIDITA = 30; // oltre questa età i dati vengono riscaricati all'apertura
-const SCHEDE = ["oggi", "agenda", "compiti", "studio", "orario", "voti", "carico", "assenze"];
+const SCHEDE = ["oggi", "agenda", "compiti", "orario", "voti", "carico", "assenze"];
 
 let D = null; // dati elaborati dal server
-let fatti = new Set(); // id dei compiti spuntati (e dei passi del piano di studio, che iniziano con «studio-»)
+let fatti = new Set(); // id dei compiti spuntati
 let scheda = "oggi";
 let ricerca = ""; // testo cercato nella scheda Compiti
 let nascondiFatti = false;
 let settimanaOrario = 0;
+let oraOrario = null; // la casella scelta nella griglia dell'orario, «data|inizio» (null = l'ora in corso)
 let materiaGrafico = "";
 let simMateria = "";
 let simulati = []; // voti ipotetici: {materia, voto}
+let simVoto = null; // il voto che si sta provando nel simulatore, non ancora aggiunto
+let sezioniAperte = new Set(); // sezioni a scomparsa aperte (Voti: grafici, tutti i voti, consigli; Agenda: gli elenchi completi)
+let meseAgenda = 0; // il mese del calendario dell'Agenda, rispetto a quello di oggi
+let giornoAgenda = null; // il giorno scelto sul calendario (null = oggi)
+let settimanaCompitiScelta = 0; // la settimana dei Compiti, rispetto a quella di oggi
+let giornoCompiti = null; // il giorno scelto nella settimana dei Compiti (sul telefono)
+let giornoCarico = null; // il giorno scelto tra i prossimi 14 del Carico di lavoro (null = oggi)
+let caricoPer = "materia"; // «Da dove arriva il lavoro»: per materia o per docente
+let caricoTutte = false; // se mostrare tutte le righe o solo le prime 5
 
 /* ---------- utilità ---------- */
 
@@ -58,7 +68,7 @@ async function api(percorso, corpo) {
   return json;
 }
 
-let titoloAttuale = ["Registro", ""];
+let titoloAttuale = ["Zaino", ""];
 // Il titolo in alto: col tema «Nothing» la prima parte è a punti e il resto (il nome) va a capo in piccolo.
 function impostaTitolo(testo, resto = "") {
   titoloAttuale = [testo, resto];
@@ -66,7 +76,7 @@ function impostaTitolo(testo, resto = "") {
   if (temaNothing()) $("#titolo").innerHTML = aPunti(testo, 3.4) + sotto;
   // Col tema «Ultra» il titolo è composto come il fronte della lattina: riga in alto tra due trattini, nome grande e graffiato, parola azzurra spaziata, «Ultra».
   else if (temaUltra()) $("#titolo").innerHTML = `<span class="ultra-zero" id="ultra-zero">${esc(sloganUltra())}</span>
-    <span class="wordmark">${esc(testo === "Registro" ? "REGISTRØ" : testo)}</span><span class="ultra-azzurro">Scuola</span><span class="ultra-nome">Ultra</span>${sotto}`;
+    <span class="wordmark">${esc(testo === "Zaino" ? "ZAINØ" : testo)}</span><span class="ultra-azzurro">Scuola</span><span class="ultra-nome">Ultra</span>${sotto}`;
   else $("#titolo").textContent = resto ? `${testo} ${resto}` : testo;
 }
 
@@ -201,7 +211,7 @@ function tabellaPromemoria(lista) {
   return `<div class="box"><table><thead><tr><th>Quando</th><th>Materia</th><th>Dettagli</th></tr></thead><tbody>${righe.join("")}</tbody></table></div>`;
 }
 
-function listaCompiti(lista, vuoto) {
+function listaCompiti(lista, vuoto, testa = "") {
   if (nascondiFatti) lista = lista.filter((c) => !fatti.has(c.id));
   if (!lista.length) return `<div class="box"><div class="empty">${vuoto}</div></div>`;
   const perGiorno = new Map();
@@ -215,7 +225,7 @@ function listaCompiti(lista, vuoto) {
       <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> — ${esc(c.testo)}</span></label></li>`).join("");
     html += "</ul>";
   });
-  return `<div class="box">${html}</div>`;
+  return `<div class="box">${testa}${html}</div>`;
 }
 
 function listaConsigli(voci) {
@@ -230,10 +240,15 @@ const temaNothing = () => document.documentElement.dataset.tema === "nothing";
 const aPunti = (testo, passo) => `<span class="a-punti" role="img" aria-label="${esc(testo)}">${puntini(testo, passo)}</span>`;
 const grande = (testo, passo = 3) => (temaNothing() ? aPunti(testo, passo) : esc(testo));
 
-const tessera = (valore, etichetta, classe = "") => {
+const tessera = (valore, etichetta, classe = "", sotto = "") => {
   const v = String(valore);
-  return `<div class="card"><b class="${classe}">${temaNothing() && v.length <= 7 && !/[<&]/.test(v) ? aPunti(v, 4) : v}</b><span>${etichetta}</span></div>`;
+  return `<div class="card"><b class="${classe}">${temaNothing() && v.length <= 7 && !/[<&]/.test(v) ? aPunti(v, 4) : v}</b><span>${etichetta}</span>${sotto}</div>`;
 };
+
+// Barra di avanzamento sottile; «barraTacche» è divisa in pezzi [peso, "si" | "ora" | ""] (uno per passo, o per 5 minuti di lezione).
+const barra = (quota, classe = "") => `<div class="progresso ${classe}"><i style="width:${Math.round(Math.min(1, Math.max(0, quota)) * 100)}%"></i></div>`;
+const barraTacche = (pezzi, etichetta) => `<div class="tacche" role="img" aria-label="${esc(etichetta)}">${pezzi.map(([peso, classe]) =>
+  `<i class="${classe}" style="flex-grow:${peso}"></i>`).join("")}</div>`;
 
 /* ---------- novità ---------- */
 
@@ -241,7 +256,7 @@ const tessera = (valore, etichetta, classe = "") => {
 // hanno un puntino rosso finché non esci dalla scheda che li mostra. Alla primissima apertura tutto conta come già visto.
 const chiaveVoto = (v) => `${v.data}|${v.materia}|${v.codice}|${v.descrizione}`;
 const chiaveVerifica = (p) => `${p.data}|${p.materia}|${p.testo}`;
-const VISTE_DA = { agenda: ["verifiche", "compiti"], compiti: ["compiti"], studio: ["verifiche"], voti: ["voti"] };
+const VISTE_DA = { agenda: ["verifiche", "compiti"], compiti: ["compiti"], voti: ["voti"] };
 let visti = null; // {voti, verifiche, compiti}: Set di chiavi
 
 const chiaviAttuali = () => ({ voti: D.voti.map(chiaveVoto), verifiche: verificheFuture().map(chiaveVerifica), compiti: D.compiti.map((c) => c.id) });
@@ -275,9 +290,9 @@ function segnaVisti(schedaVista) {
 // Il numero di novità accanto al nome delle schede.
 function contatoriSchede() {
   document.querySelectorAll(".tabs button").forEach((b) => {
-    b.dataset.nome ||= b.textContent;
     const n = (VISTE_DA[b.dataset.tab] || []).reduce((t, c) => t + contaNuovi(c), 0);
-    b.innerHTML = esc(b.dataset.nome) + (n ? ` <span class="conta-nuovi" aria-label="${n} novità">${n}</span>` : "");
+    b.querySelector(".conta-nuovi")?.remove();
+    if (n) b.insertAdjacentHTML("beforeend", `<span class="conta-nuovi" aria-label="${n} novità">${n}</span>`);
   });
 }
 
@@ -290,6 +305,34 @@ function listaVariazioni(lista) {
     <td><span class="tag">${esc(l.stato)}</span><div class="muted">${dettagliVariazione(l)}</div></td></tr>`).join("")}</tbody></table></div>`;
 }
 
+// La sigla di una materia per la griglia del telefono: «Lingua e letteratura italiana» → ITA, «Scienze motorie e sportive» → SMS.
+const PAROLE_VUOTE = new Set(["e", "ed", "di", "del", "della", "delle", "dei", "degli", "la", "le", "lo", "il", "i", "gli", "a", "al", "in", "per", "con", "lingua", "letteratura", "cultura"]);
+function sigla(materia) {
+  return String(materia).split("/").map((m) => {
+    m = m.replace(/\(.*?\)/g, " ").trim();
+    if (/^[A-Z]{2,5}$/.test(m)) return m;
+    const parole = m.split(/[\s'’.,-]+/).filter((w) => w && !PAROLE_VUOTE.has(w.toLowerCase()));
+    if (!parole.length) return m.slice(0, 3).toUpperCase();
+    return (parole.length === 1 ? parole[0].slice(0, 3) : parole.slice(0, 3).map((w) => w[0]).join("")).toUpperCase();
+  }).join("/");
+}
+// Un colore per materia: le materie dell'orario in ordine alfabetico prendono le tinte una dopo l'altra, così due materie
+// diverse non si somigliano; chiaro e scuro li decide il tema (style.css).
+const TINTE = [215, 25, 150, 275, 45, 190, 340, 100, 250, 5, 170, 305];
+function tintaMateria(materia) {
+  const tutte = [...new Set(lezioniOrario().map((l) => l.materia))].sort();
+  return TINTE[Math.max(0, tutte.indexOf(materia)) % TINTE.length];
+}
+
+function cartaVariazione(l) {
+  const grave = l.stato === "annullata";
+  const chi = [l.docenti.join(", "), l.aule.length ? "aula " + l.aule.join(", ") : ""].filter(Boolean).join(" · ");
+  return `<li class="${grave ? "grave" : ""}"><span class="cambio-ora">${l.inizio}</span><div>
+    <div class="cambio-testa"><strong>${esc(l.materia)}</strong><span class="tag${grave ? " bad" : ""}">${esc(l.stato)}</span>${l.nuova ? '<span class="tag pieno">nuova</span>' : ""}</div>
+    <div class="cambio-quando">${dataLunga(l.data).replace(/^./, (c) => c.toUpperCase())} · ${quando(l.data)}</div>
+    <div class="muted">${[grave ? "" : esc(chi), dettagliVariazione(l)].filter(Boolean).join(" · ")}</div></div></li>`;
+}
+
 function schedaOrario() {
   const o = D.orario;
   if (!o) return `<div class="box" style="margin-top:20px"><div class="empty">${D.profilo && !D.profilo.untis
@@ -300,13 +343,27 @@ function schedaOrario() {
   const s = o.settimane[settimanaOrario];
   const lezioni = o.lezioni.filter((l) => l.data >= s.inizio && l.data <= s.fine);
   const variazioni = lezioni.filter((l) => l.variazione);
+  const adesso = oraDi(new Date());
+  const passata = (l) => l.data < D.oggi || (l.data === D.oggi && l.fine <= adesso);
+  const inCorso = (l) => l.data === D.oggi && l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata";
+  // Senza una scelta si vedono i dettagli dell'ora in corso.
+  const scelta = oraOrario || (lezioni.find(inCorso) ? `${D.oggi}|${lezioni.find(inCorso).inizio}` : null);
   const cella = (g, inizio) => {
     const qui = lezioni.filter((l) => l.data === g && l.inizio === inizio);
-    if (!qui.length) return "<td></td>";
-    const classe = qui.some((l) => l.stato === "annullata") ? "annullata" : qui.some((l) => l.variazione) ? "variata" : "";
-    return `<td class="${classe}">${qui.map((l) => `<div class="lez"><strong>${esc(l.materia)}</strong>
-      <div class="muted">${esc([l.docenti.join(", "), l.aule.join(", ")].filter(Boolean).join(" · "))}</div>
-      ${l.variazione ? `<div><span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}${l.nuova ? " · nuova" : ""}</span></div><div class="muted">${dettagliVariazione(l)}</div>` : ""}</div>`).join("")}</td>`;
+    if (!qui.length) return '<div class="cella vuota"></div>';
+    const chiave = `${g}|${inizio}`, ann = qui.every((l) => l.stato === "annullata"), varia = qui.some((l) => l.variazione);
+    const classi = ["cella", passata(qui[0]) ? "passata" : "", qui.some(inCorso) ? "ora" : "", ann ? "annullata" : varia ? "variata" : "", chiave === scelta ? "scelta" : ""].filter(Boolean).join(" ");
+    const etichetta = `${dataLunga(g)}, ${inizio}: ${qui.map((l) => l.materia + (l.variazione ? ", " + l.stato : "")).join("; ")}`;
+    return `<button type="button" class="${classi}" style="--tinta:${tintaMateria(qui[0].materia)}" data-cella="${chiave}" aria-pressed="${chiave === scelta}" aria-label="${esc(etichetta)}">
+      <span class="sigla">${esc(qui.map((l) => sigla(l.materia)).join("/"))}</span><span class="nome-m">${esc(qui.map((l) => l.materia).join(" / "))}</span>
+      <span class="cella-sotto">${varia ? esc(qui.find((l) => l.variazione).stato) : esc(qui.flatMap((l) => l.aule).join(", "))}</span>${varia ? '<i class="pallino" aria-hidden="true"></i>' : ""}</button>`;
+  };
+  const dettaglio = () => {
+    const qui = scelta ? lezioni.filter((l) => `${l.data}|${l.inizio}` === scelta) : [];
+    if (!qui.length) return '<p class="cella-dettaglio vuoto muted">Tocca un\'ora per vedere aula, docente e variazioni.</p>';
+    return qui.map((l) => `<div class="cella-dettaglio" style="--tinta:${tintaMateria(l.materia)}"><div>
+      <strong>${esc(l.materia)}</strong>${inCorso(l) ? ' <span class="tag accento">adesso</span>' : ""}${l.variazione ? ` <span class="tag${l.stato === "annullata" || l.nuova ? " bad" : ""}">${esc(l.stato)}</span>` : ""}
+      <div class="muted">${dataLunga(l.data).replace(/^./, (c) => c.toUpperCase())} · ${l.inizio}–${l.fine}${dettagliLezione(l) ? " · " + dettagliLezione(l) : ""}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div></div>`).join("");
   };
   const t = new Date(o.scaricato);
   return `<div class="barra-azioni">
@@ -314,11 +371,67 @@ function schedaOrario() {
       <a class="btn ghost small" href="/api/pdf?settimana=${settimanaOrario}" target="_blank" rel="noopener">Scarica PDF</a>
     </div>
     <p class="sub" style="margin:0 0 12px">Dal ${dataBreve(s.inizio)} al ${dataBreve(s.fine)} · ${variazioni.length ? plurale(variazioni.length, "variazione", "variazioni") : "nessuna variazione"} · orario letto da WebUntis ${quando(o.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(o.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}</p>
-    <div class="box"><table class="orario"><thead><tr><th></th>${s.giorni.map((g) => `<th class="${g === D.oggi ? "oggi" : ""}">${GIORNI[giorno(g).getDay()]} ${giorno(g).getDate()}</th>`).join("")}</tr></thead><tbody>
-      ${s.fasce.map(([inizio, fine]) => `<tr><td class="ora"><strong>${inizio}</strong><br>${fine}</td>${s.giorni.map((g) => cella(g, inizio)).join("")}</tr>`).join("")}
-    </tbody></table></div>
-    ${variazioni.length ? `<h2>Variazioni della settimana</h2>${listaVariazioni(variazioni)}` : ""}
-    <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>`;
+    <div class="orario-layout"><div>
+      ${titolo("La settimana", "tocca un'ora per i dettagli")}
+      <div class="box pad"><div class="griglia-orario" style="--giorni:${s.giorni.length}">
+        <span></span>${s.giorni.map((g) => `<span class="testa-giorno${g === D.oggi ? " oggi" : ""}">${GIORNI[giorno(g).getDay()].slice(0, 3)}<b>${giorno(g).getDate()}</b></span>`).join("")}
+        ${s.fasce.map(([inizio, fine]) => `<span class="ora-fascia${s.giorni.includes(D.oggi) && inizio <= adesso && adesso < fine ? " ora" : ""}"><b>${inizio}</b><small>${fine}</small><i>${inizio.slice(0, 2)}</i></span>${s.giorni.map((g) => cella(g, inizio)).join("")}`).join("")}
+      </div>
+      ${dettaglio()}
+      <div class="legenda-orario"><span class="l-ora">adesso</span><span class="l-var">variazione</span><span class="l-ann">annullata</span></div></div>
+    </div><div>
+      ${titolo("Cosa cambia", variazioni.length ? plurale(variazioni.length, "variazione", "variazioni") : "")}
+      ${variazioni.length ? `<ul class="cambi">${variazioni.map(cartaVariazione).join("")}</ul>` : '<div class="box"><div class="empty">Nessuna variazione questa settimana.</div></div>'}
+      <p class="note">Le lezioni in parallelo che non ti riguardano si nascondono da config.py (ORARIO_NASCONDI). Un docente indicato con una sigla è un supplente che non compare nel tuo registro.</p>
+    </div></div>`;
+}
+
+// Gli impegni di ogni giorno, per il calendario dell'Agenda: verifiche, altri promemoria, compiti e variazioni d'orario.
+function impegniPerGiorno() {
+  const m = new Map(), di = (iso) => { if (!m.has(iso)) m.set(iso, { verifiche: [], promemoria: [], compiti: [], variazioni: [] }); return m.get(iso); };
+  D.promemoria.forEach((p) => di(p.data)[p.verifica ? "verifiche" : "promemoria"].push(p));
+  D.compiti.forEach((c) => di(c.consegna).compiti.push(c));
+  lezioniOrario().filter((l) => l.variazione).forEach((l) => di(l.data).variazioni.push(l));
+  return m;
+}
+
+// Il mese come griglia (dal lunedì). In ogni giorno un puntino per impegno; sul PC al posto dei puntini i nomi delle materie.
+function calendarioMese(impegni) {
+  const base = giorno(D.oggi), primo = new Date(base.getFullYear(), base.getMonth() + meseAgenda, 1);
+  const giorniMese = new Date(primo.getFullYear(), primo.getMonth() + 1, 0).getDate(), vuoti = (primo.getDay() + 6) % 7;
+  const celle = Array(vuoti).fill('<span class="giorno-cal fuori"></span>');
+  for (let g = 1; g <= giorniMese; g++) {
+    const iso = isoDi(new Date(primo.getFullYear(), primo.getMonth(), g)), x = impegni.get(iso);
+    const voci = x ? [...x.verifiche.map((p) => ["v", p.materia || "Verifica"]), ...x.variazioni.map((l) => ["x", l.materia]),
+      ...x.compiti.map((c) => [fatti.has(c.id) ? "c fatto" : "c", c.materia]), ...x.promemoria.map((p) => ["p", p.materia || "Promemoria"])] : [];
+    const classe = [iso === D.oggi ? "oggi" : "", iso === giornoAgenda ? "scelto" : "", iso < D.oggi ? "passato" : "", (new Date(primo.getFullYear(), primo.getMonth(), g).getDay() + 6) % 7 > 4 ? "festivo" : ""].filter(Boolean).join(" ");
+    const descrizione = voci.length ? `: ${plurale(voci.length, "impegno", "impegni")}` : "";
+    celle.push(`<button type="button" class="giorno-cal ${classe}" data-giorno="${iso}" aria-pressed="${iso === giornoAgenda}" aria-label="${esc(dataLunga(iso) + descrizione)}">
+      <span class="num">${g}</span><span class="cal-punti">${voci.slice(0, 4).map(([t]) => `<i class="${t}"></i>`).join("")}</span>
+      <span class="cal-et">${voci.slice(0, 3).map(([t, n]) => `<i class="${t}">${esc(n)}</i>`).join("")}${voci.length > 3 ? `<small>+${voci.length - 3}</small>` : ""}</span></button>`);
+  }
+  const nome = `${MESI_LUNGHI[primo.getMonth()].replace(/^./, (c) => c.toUpperCase())} ${primo.getFullYear()}`;
+  return `<h2 class="con-destra">${nome}<span class="h2-destra mesi"><button type="button" class="link" data-mese="-1" aria-label="Mese precedente">‹</button>
+      <button type="button" class="link" data-mese="0">oggi</button><button type="button" class="link" data-mese="1" aria-label="Mese seguente">›</button></span></h2>
+    <div class="box pad calendario-mese"><div class="cal-griglia">${["L", "M", "M", "G", "V", "S", "D"].map((g) => `<span class="cal-testa">${g}</span>`).join("")}${celle.join("")}</div>
+      <div class="cal-legenda"><span><i class="v"></i>verifica</span><span><i class="c"></i>compito</span><span><i class="x"></i>variazione</span><span><i class="p"></i>promemoria</span></div></div>`;
+}
+
+// Cosa c'è nel giorno scelto sul calendario; i compiti si spuntano da qui come nella scheda Compiti.
+function giornoScelto(impegni, iso = giornoAgenda) {
+  const x = impegni.get(iso) || { verifiche: [], promemoria: [], compiti: [], variazioni: [] };
+  const riga = (classe, titolo, sotto, coda = "") => `<li class="evento ${classe}"><i aria-hidden="true"></i><div>${titolo}<div class="muted">${sotto}</div></div>${coda}</li>`;
+  const eventi = [
+    ...x.verifiche.map((p) => riga("v", `${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia) || "Verifica"}</strong>`,
+      [esc(p.testo), esc(p.orario), esc(aulaPromemoria(p))].filter(Boolean).join(" · "), '<span class="tag bad">verifica</span>')),
+    ...x.variazioni.map((l) => riga("x", `<strong>${esc(l.materia)}</strong>`, `${l.inizio}–${l.fine}${dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}`, `<span class="tag${l.nuova || l.stato === "annullata" ? " bad" : ""}">${esc(l.stato)}</span>`)),
+    ...x.promemoria.map((p) => riga("p", `<strong>${esc(p.materia) || "Promemoria"}</strong>`, [esc(p.testo), esc(p.orario)].filter(Boolean).join(" · "))),
+  ].join("");
+  const compiti = x.compiti.map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label><input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+    <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> — ${esc(c.testo)}</span></label></li>`).join("");
+  const testa = dataLunga(iso).replace(/^./, (c) => c.toUpperCase());
+  return `${titolo(testa, quando(iso))}<div class="box giorno-scelto">${eventi || compiti
+    ? `${eventi ? `<ul class="eventi">${eventi}</ul>` : ""}${compiti ? `<ul class="todo">${compiti}</ul>` : ""}` : '<div class="empty">Niente in programma per questo giorno.</div>'}</div>`;
 }
 
 function schedaAgenda() {
@@ -326,21 +439,26 @@ function schedaAgenda() {
   const variazioni = lezioniOrario().filter((l) => l.variazione && giorniDa(l.data) >= 0);
   const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0);
   const daFare = futuri.filter((c) => !fatti.has(c.id)).length;
-  const insufficienti = D.statistiche.filter((s) => s.insufficiente).length;
   const urgenti = D.consigli.filter((c) => c.livello !== "info").slice(0, 3);
+  if (!giornoAgenda) giornoAgenda = D.oggi;
+  const impegni = impegniPerGiorno();
+  // Sul PC il calendario a sinistra e il giorno scelto a destra; sul telefono uno sotto l'altro. Gli elenchi completi restano, chiusi, in fondo.
   return `<div class="cards">
       ${tessera(verifiche.length, "verifiche in arrivo")}
       ${tessera(daFare, "compiti da fare")}
+      ${tessera(variazioni.length, "variazioni d'orario")}
       ${tessera(media(D.media_generale), "media generale")}
-      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
     </div>
-    ${urgenti.length ? `<h2>Da tenere d'occhio</h2>${listaConsigli(urgenti)}` : ""}
-    ${variazioni.length ? `<h2>Variazioni d'orario</h2>${listaVariazioni(variazioni)}` : ""}
-    <h2>Verifiche in arrivo</h2>${tabellaPromemoria(verifiche)}
-    <h2>Compiti da fare</h2>${listaCompiti(futuri, "Nessun compito da fare.")}
-    ${altri.length ? `<h2>Altri promemoria</h2>${tabellaPromemoria(altri)}
-      <p class="note">Promemoria futuri senza parole chiave da verifica: dai un'occhiata, potrebbe essercene una scritta in modo insolito.</p>` : ""}
-    <h2>Nel tuo calendario</h2>${riquadroCalendario()}`;
+    <div class="agenda-griglia"><div class="agenda-colonna">${calendarioMese(impegni)}</div>
+      <div class="agenda-colonna">${giornoScelto(impegni)}${urgenti.length ? `${titolo("Da tenere d'occhio")}${listaConsigli(urgenti)}` : ""}</div></div>
+    <div class="sezioni">
+      ${sezione("a-verifiche", "Tutte le verifiche in arrivo", verifiche.length, tabellaPromemoria(verifiche))}
+      ${sezione("a-compiti", "Tutti i compiti da fare", daFare, listaCompiti(futuri, "Nessun compito da fare."))}
+      ${variazioni.length ? sezione("a-variazioni", "Variazioni d'orario", variazioni.length, listaVariazioni(variazioni)) : ""}
+      ${altri.length ? sezione("a-promemoria", "Altri promemoria", altri.length, `${tabellaPromemoria(altri)}
+        <p class="note">Promemoria futuri senza parole chiave da verifica: dai un'occhiata, potrebbe essercene una scritta in modo insolito.</p>`) : ""}
+      ${riquadroCalendario()}
+    </div>`;
 }
 
 // Mappa stile GitHub: una casella per giorno di consegna, blu pieno se hai fatto tutto, più chiaro man mano che ne salti.
@@ -398,6 +516,37 @@ function mappaCompiti() {
       <p class="note">I compiti che non hai mai spuntato contano come non fatti, anche quelli di prima di iniziare a usare l'app.</p></div>`;
 }
 
+const GIORNI_BREVI = ["Lun", "Mar", "Mer", "Gio", "Ven", "Sab", "Dom"];
+
+// La settimana dei compiti: una colonna per giorno sul PC; sul telefono la stessa struttura diventa una striscia di giorni
+// da toccare con l'elenco del giorno scelto sotto (style.css). La domenica compare solo se c'è qualcosa da consegnare.
+function settimanaCompiti() {
+  const tutti = D.compiti_anno && D.compiti_anno.length ? D.compiti_anno : D.compiti;
+  const oggi = giorno(D.oggi), lunedi = new Date(oggi);
+  lunedi.setDate(oggi.getDate() - ((oggi.getDay() + 6) % 7) + (oggi.getDay() === 0 ? 7 : 0) + 7 * settimanaCompitiScelta); // di domenica si guarda già la settimana dopo
+  const giorni = Array.from({ length: 7 }, (_, i) => isoDi(new Date(lunedi.getFullYear(), lunedi.getMonth(), lunedi.getDate() + i)));
+  const per = new Map(giorni.map((g) => [g, []]));
+  tutti.forEach((c) => per.has(c.consegna) && per.get(c.consegna).push(c));
+  const visibili = giorni.filter((g, i) => i < 6 || per.get(g).length);
+  if (!visibili.includes(giornoCompiti)) giornoCompiti = visibili.includes(D.oggi) ? D.oggi : visibili.find((g) => per.get(g).some((c) => !fatti.has(c.id))) || visibili[0];
+  const primo = giorno(visibili[0]), ultimo = giorno(visibili[visibili.length - 1]);
+  const intervallo = primo.getMonth() === ultimo.getMonth() ? `${primo.getDate()}–${ultimo.getDate()} ${MESI_LUNGHI[primo.getMonth()]}` : `${primo.getDate()} ${MESI[primo.getMonth()]} – ${ultimo.getDate()} ${MESI[ultimo.getMonth()]}`;
+  const colonne = visibili.map((g) => {
+    const compiti = per.get(g), lista = compiti.filter((c) => !nascondiFatti || !fatti.has(c.id)), d = giorno(g);
+    const nome = dataLunga(g).replace(/^./, (c) => c.toUpperCase()), daFare = compiti.filter((c) => !fatti.has(c.id)).length;
+    return `<div class="sett-giorno${g === giornoCompiti ? " scelto" : ""}${g === D.oggi ? " oggi" : ""}${g < D.oggi ? " passato" : ""}">
+      <button type="button" class="sett-testa" data-giorno-compiti="${g}" aria-pressed="${g === giornoCompiti}" aria-label="${esc(nome)}: ${plurale(daFare, "compito da fare", "compiti da fare")}">
+        <span>${GIORNI_BREVI[(d.getDay() + 6) % 7]}</span><b>${d.getDate()}</b><span class="sett-punti">${compiti.slice(0, 4).map((c) => `<i class="${fatti.has(c.id) ? "fatto" : ""}"></i>`).join("")}</span></button>
+      <div class="sett-corpo"><p class="sett-titolo">${nome} <span class="muted">· ${quando(g)}</span></p>
+        ${lista.length ? `<ul class="todo sett-lista">${lista.map((c) => `<li class="${fatti.has(c.id) ? "fatto" : ""}"><label><input type="checkbox" data-id="${c.id}" ${fatti.has(c.id) ? "checked" : ""}>
+          <span>${puntoNuovo(nuovo("compiti", c.id))}<strong>${esc(c.materia)}</strong> <span class="sett-testo">${esc(c.testo)}</span></span></label></li>`).join("")}</ul>`
+          : `<p class="sett-vuoto muted">${compiti.length ? "Tutto fatto ✓" : "Libero 🎉"}</p>`}</div></div>`;
+  }).join("");
+  return `<h2 class="con-destra">Settimana ${intervallo}<span class="h2-destra mesi"><button type="button" class="link" data-sett-compiti="-1" aria-label="Settimana precedente">‹</button>
+      <button type="button" class="link" data-sett-compiti="0">questa</button><button type="button" class="link" data-sett-compiti="1" aria-label="Settimana seguente">›</button></span></h2>
+    <div class="settimana" style="--giorni:${visibili.length}">${colonne}</div>`;
+}
+
 function schedaCompiti() {
   const futuri = D.compiti.filter((c) => giorniDa(c.consegna) >= 0), scaduti = D.compiti.filter((c) => giorniDa(c.consegna) < 0);
   const nFatti = futuri.filter((c) => fatti.has(c.id)).length;
@@ -411,10 +560,13 @@ function schedaCompiti() {
       <label><input type="checkbox" id="nascondi" ${nascondiFatti ? "checked" : ""}> Nascondi i fatti</label>
       <a class="btn ghost small" href="/api/esporta-compiti" target="_blank" rel="noopener">Scarica tutti i compiti (PDF)</a>
     </div>
+    ${settimanaCompiti()}
+    ${nonFatti ? `<h2>Scaduti negli ultimi giorni <span class="tag bad">${nonFatti} non spuntati</span></h2>${listaCompiti(scaduti.slice().reverse(), "Nessun arretrato.")}` : ""}
     ${mappaCompiti()}
-    <h2>Da fare</h2>${listaCompiti(futuri, nascondiFatti && futuri.length ? "Tutto fatto!" : "Nessun compito da fare.")}
-    <h2>Scaduti negli ultimi giorni ${nonFatti ? `<span class="tag bad">${nonFatti} non spuntati</span>` : ""}</h2>
-    ${listaCompiti(scaduti.slice().reverse(), nascondiFatti && scaduti.length ? "Nessun arretrato." : "Nessun compito scaduto di recente.")}
+    <div class="sezioni">
+      ${sezione("c-futuri", "Tutti i compiti da fare", futuri.length - nFatti, listaCompiti(futuri, nascondiFatti && futuri.length ? "Tutto fatto!" : "Nessun compito da fare."))}
+      ${scaduti.length && !nonFatti ? sezione("c-scaduti", "Scaduti negli ultimi giorni", scaduti.length, listaCompiti(scaduti.slice().reverse(), "Nessun compito scaduto di recente.")) : ""}
+    </div>
     <p class="note">Spunta un compito quando l'hai fatto: resta salvato anche dopo l'aggiornamento dei dati.</p></div>`;
 }
 
@@ -431,33 +583,49 @@ function testoMinimo(s) {
   return `Voto minimo alla prossima prova per restare al 6: <strong>${num(v)}</strong>.`;
 }
 
+// «Che voto mi serve?»: tocchi la materia e il voto e vedi subito le medie che cambierebbero.
+// I voti già aggiunti (simulati) restano in pila; simVoto è quello che stai provando adesso.
 function simulatore() {
   const tutte = [...new Set([...D.materie, ...D.statistiche.map((s) => s.materia)])].sort();
   if (!tutte.includes(simMateria)) simMateria = (D.statistiche[0] || {}).materia || tutte[0] || "";
   const base = Object.fromEntries(D.statistiche.map((s) => [s.materia, { somma: s.somma, n: s.numero }]));
-  const dopo = JSON.parse(JSON.stringify(base));
-  simulati.forEach((x) => { const m = (dopo[x.materia] ||= { somma: 0, n: 0 }); m.somma += x.voto; m.n += 1; });
+  const conVoti = (lista) => {
+    const o = JSON.parse(JSON.stringify(base));
+    lista.forEach((x) => { const m = (o[x.materia] ||= { somma: 0, n: 0 }); m.somma += x.voto; m.n += 1; });
+    return o;
+  };
+  const prova = simVoto == null ? simulati : [...simulati, { materia: simMateria, voto: simVoto }];
+  const pila = conVoti(simulati), dopo = conVoti(prova);
   const mediaDi = (o) => (o && o.n ? o.somma / o.n : null);
   const generale = (o) => { const m = Object.values(o).filter((x) => x.n).map(mediaDi); return m.length ? m.reduce((a, b) => a + b, 0) / m.length : null; };
-  const cur = dopo[simMateria] || { somma: 0, n: 0 };
+  const cur = pila[simMateria] || { somma: 0, n: 0 };
   const serve = (obiettivo) => {
     const v = arrotondaSu(obiettivo * (cur.n + 1) - cur.somma);
     return v > 10 ? "non basta una prova" : v <= 1 ? "qualsiasi voto" : `almeno ${num(v)}`;
   };
-  const freccia = (prima, poi) => (prima == null || poi == null || Math.abs(poi - prima) < 0.005 ? "" : poi > prima ? ` <span class="ok">▲ ${media(poi - prima)}</span>` : ` <span class="bad">▼ ${media(prima - poi)}</span>`);
-  return `<div class="box pad">
-    <div class="sim">
-      <label>Materia<select id="sim-materia">${tutte.map((m) => `<option${m === simMateria ? " selected" : ""}>${esc(m)}</option>`).join("")}</select></label>
-      <label>Voto ipotetico<input id="sim-voto" type="number" min="1" max="10" step="0.25" value="6"></label>
-      <button class="btn" id="sim-aggiungi" type="button">Aggiungi</button>
-      ${simulati.length ? '<button class="btn ghost" id="sim-azzera" type="button">Azzera</button>' : ""}
-    </div>
-    ${simulati.length ? `<div class="chips">${simulati.map((x, i) => `<span class="chip">${esc(x.materia)}: <strong>${num(x.voto)}</strong><button type="button" data-togli="${i}" aria-label="Togli">✕</button></span>`).join("")}</div>` : '<p class="note">Aggiungi uno o più voti ipotetici per vedere come cambierebbero le medie. Non modifica nulla sul registro.</p>'}
-    <div class="sim-ris">
-      <div><span>Media di ${esc(simMateria)}</span><b>${media(mediaDi(cur))}${freccia(mediaDi(base[simMateria]), mediaDi(cur))}</b><span>ora ${media(mediaDi(base[simMateria]))}</span></div>
-      <div><span>Media generale</span><b>${media(generale(dopo))}${freccia(generale(base), generale(dopo))}</b><span>ora ${media(generale(base))}</span></div>
-      <div><span>Alla prova successiva, per avere</span><b style="font-size:15px;line-height:1.7">6 → ${serve(6)}<br>7 → ${serve(7)}<br>8 → ${serve(8)}</b></div>
-    </div></div>`;
+  const ora = mediaDi(base[simMateria]), poi = mediaDi(dopo[simMateria]);
+  const riquadro = (etichetta, prima, adesso) => `<div><span>${etichetta}</span><p><s>${media(prima)}</s> <b class="${adesso != null && adesso < D.sufficienza ? "bad" : "ok"}">${media(adesso)}</b></p></div>`;
+  let frase = "";
+  if (simVoto != null && ora != null && poi != null) {
+    const nome = esc(simMateria), voto = num(simVoto);
+    frase = ora < D.sufficienza && poi >= D.sufficienza ? `<p class="ok">✓ Con un ${voto} ${nome} torna al 6.</p>`
+      : ora >= D.sufficienza && poi < D.sufficienza ? `<p class="bad">Attenzione: con un ${voto} ${nome} scende sotto il 6.</p>`
+      : `<p class="muted">Con un ${voto} ${nome} passa da ${media(ora)} a ${media(poi)}.</p>`;
+  }
+  const altro = simVoto != null && ![4, 5, 6, 7, 8, 9, 10].includes(simVoto) ? simVoto : "";
+  return `<div class="box pad simulatore" id="simulatore">
+    <p class="sim-etichetta">Materia</p>
+    <div class="sim-scelte">${tutte.map((m) => `<button type="button" class="sim-scelta${m === simMateria ? " attiva" : ""}" data-sim="${esc(m)}">${esc(m)}</button>`).join("")}</div>
+    <p class="sim-etichetta">Se alla prossima prendo…</p>
+    <div class="sim-voti">${[4, 5, 6, 7, 8, 9, 10].map((v) => `<button type="button" class="sim-voto${v === simVoto ? " attiva" : ""}" data-sim-voto="${v}">${v}</button>`).join("")}
+      <label class="sim-altro"><span class="sr">Altro voto, anche con i decimali</span><input id="sim-voto" type="number" min="1" max="10" step="0.25" placeholder="altro" value="${altro}"></label></div>
+    ${simVoto == null && !simulati.length ? '<p class="note">Tocca un voto per vedere come cambierebbero le medie. Non modifica nulla sul registro.</p>'
+      : `<div class="sim-esito">${riquadro(esc(simMateria), ora, poi)}${riquadro("Media generale", generale(base), generale(dopo))}</div>${frase}`}
+    ${simulati.length ? `<div class="chips">${simulati.map((x, i) => `<span class="chip">${esc(x.materia)}: <strong>${num(x.voto)}</strong><button type="button" data-togli="${i}" aria-label="Togli">✕</button></span>`).join("")}</div>` : ""}
+    <div class="sim-azioni">${simVoto != null ? '<button class="btn ghost small" id="sim-aggiungi" type="button">+ Aggiungi e prova un altro voto</button>' : ""}
+      ${simulati.length || simVoto != null ? '<button class="btn ghost small" id="sim-azzera" type="button">Azzera</button>' : ""}</div>
+    <p class="note">In ${esc(simMateria)}, alla prova successiva${simulati.length ? " (dopo quelli aggiunti)" : ""}: per avere 6 → ${serve(6)} · 7 → ${serve(7)} · 8 → ${serve(8)}.</p>
+  </div>`;
 }
 
 // Tema «Nothing»: la media di ogni materia come dieci puntini (uno per punto), mezzo acceso per i decimali.
@@ -473,10 +641,64 @@ function votiAPunti(lista) {
   }).join("")}</div>`;
 }
 
+const ANDAMENTO = { su: ["▲", "in salita", "ok"], giu: ["▼", "in calo", "bad"], stabile: ["=", "stabile", "neutro"] };
+
+// Mini-grafico degli ultimi voti di una materia: linea tratteggiata sul 6, punti rossi sotto.
+// Si allarga alla scheda (preserveAspectRatio="none"); i punti sono tratti di lunghezza zero con le estremità tonde, così restano rotondi.
+function sparkVoti(materia) {
+  const voti = D.voti.filter((v) => v.materia === materia && v.valore != null).sort((a, b) => (a.data < b.data ? -1 : 1)).slice(-8);
+  if (!voti.length) return "";
+  const w = 160, h = 44, y = (v) => (6 + (h - 12) * (1 - (Math.min(10, Math.max(3, v)) - 3) / 7)).toFixed(1);
+  const x = (i) => (voti.length === 1 ? w / 2 : 6 + (i * (w - 12)) / (voti.length - 1)).toFixed(1);
+  return `<svg class="spark" viewBox="0 0 ${w} ${h}" preserveAspectRatio="none" role="img" aria-label="Ultimi voti: ${voti.map((v) => num(v.valore)).join(", ")}">
+    <line class="rif" x1="0" x2="${w}" y1="${y(D.sufficienza)}" y2="${y(D.sufficienza)}"/>
+    ${voti.length > 1 ? `<polyline points="${voti.map((v, i) => `${x(i)},${y(v.valore)}`).join(" ")}"/>` : ""}
+    ${voti.map((v, i) => `<path class="${v.valore < D.sufficienza ? "sotto" : ""}" d="M${x(i)} ${y(v.valore)}h0"/>`).join("")}</svg>`;
+}
+
+// Una scheda per materia: tutto quello che c'era nella vecchia tabella, leggibile anche sul telefono.
+function schedaMateria(s) {
+  const [freccia, parola, classe] = ANDAMENTO[s.andamento] || ["·", "pochi voti", "neutro"];
+  const tipi = [["Scritto", s.media_scritto], ["Orale", s.media_orale], ["Pratico", s.media_pratico]].filter(([, v]) => v != null);
+  const valore = media(s.media);
+  return `<div class="materia${s.insufficiente ? " insuff" : ""}">
+    <div class="materia-testa"><strong>${esc(s.materia)}</strong><span class="tag ${classe}" title="Gli ultimi 3 voti confrontati con i precedenti">${freccia} ${parola}</span></div>
+    <div class="materia-media"><div><b class="${s.insufficiente ? "bad" : ""}">${temaNothing() ? aPunti(valore, 4) : valore}</b><span>${plurale(s.numero, "voto", "voti")}</span></div>${sparkVoti(s.materia)}</div>
+    ${tipi.length ? `<div class="materia-tipi">${tipi.map(([n, v]) => `<span>${n} <strong>${media(v)}</strong></span>`).join("")}</div>` : ""}
+    <p class="muted materia-estremi">min ${num(s.minimo)} · max ${num(s.massimo)} · ultimo ${num(s.ultimo)}</p>
+    <p class="materia-serve${s.insufficiente ? " sotto" : ""}">${testoMinimo(s)}${notaRegistro(s)}</p>
+    <button type="button" class="link" data-sim="${esc(s.materia)}">E se prendo… →</button>
+  </div>`;
+}
+
+// «Cosa fare adesso»: le materie sotto il 6, quelle in calo e le verifiche della settimana nelle materie in bilico.
+function azioniVoti() {
+  const voci = new Map();
+  const prova = (s) => `<button type="button" class="link" data-sim="${esc(s.materia)}">Prova nel simulatore →</button>`;
+  D.statistiche.filter((s) => s.insufficiente).forEach((s) => voci.set(s.materia, { s, livello: "critico", testo: testoMinimo(s), azione: prova(s) }));
+  D.statistiche.filter((s) => s.andamento === "giu" && !s.insufficiente)
+    .forEach((s) => voci.set(s.materia, { s, livello: "attenzione", testo: `In calo: gli ultimi voti sono sotto i precedenti. ${testoMinimo(s)}`, azione: prova(s) }));
+  verificheFuture().filter((p) => giorniDa(p.data) <= 7).forEach((p) => {
+    const s = D.statistiche.find((x) => x.materia === p.materia);
+    if (!s || s.media >= D.sufficienza + 0.5) return;
+    const verifica = `<strong>Verifica ${quando(p.data)}.</strong> `;
+    if (voci.has(s.materia)) voci.get(s.materia).testo = verifica + voci.get(s.materia).testo;
+    else voci.set(s.materia, { s, livello: "attenzione", testo: `${verifica}La media è appena sopra il 6: conviene prepararla bene.`, azione: prova(s) });
+  });
+  const lista = [...voci.values()];
+  if (!lista.length) return '<div class="box"><div class="empty">Tutte le materie sono sopra il 6 e nessuna è in calo. Continua così!</div></div>';
+  return `<div class="azioni-voti">${lista.slice(0, 3).map((v) => `<div class="azione ${v.livello}"><span class="azione-media">${media(v.s.media)}</span>
+    <div><strong>${esc(v.s.materia)}</strong><p>${v.testo}</p>${v.azione}</div></div>`).join("")}</div>
+    ${lista.length > 3 ? `<p class="note">E ${plurale(lista.length - 3, "altra materia", "altre materie")} da tenere d'occhio: le trovi nelle schede qui sotto.</p>` : ""}`;
+}
+
+// Una sezione che si apre con un tocco; resta aperta anche quando la scheda si ridisegna (sezioniAperte).
+const sezione = (nome, testo, conto, corpo) => `<details class="sezione" data-sezione="${nome}"${sezioniAperte.has(nome) ? " open" : ""}>
+  <summary>${testo} <span class="muted">${conto}</span></summary><div class="sezione-corpo">${corpo}</div></details>`;
+
 function schedaVoti() {
   const st = D.statistiche, insufficienti = st.filter((s) => s.insufficiente).length;
   const migliore = st.length ? st[st.length - 1] : null;
-  const frecce = { su: ["↑", "In miglioramento", "ok"], giu: ["↓", "In calo", "bad"], stabile: ["=", "Stabile", ""] };
 
   const perMateria = temaNothing() ? votiAPunti(st.slice().reverse()) : barre(st.slice().reverse().map((s) => ({
     label: s.materia, segmenti: [{ v: s.media, colore: "var(--series-1)" }], val: `<strong>${media(s.media)}</strong>${s.insufficiente ? ' <span class="tag bad">sotto il 6</span>' : ""}`,
@@ -499,32 +721,7 @@ function schedaVoti() {
   const perTipo = barre(D.voti_per_tipo.map((r) => riga(r.tipo, r)), 10, D.sufficienza);
   const perMese = barre(D.voti_per_mese.map((r) => riga(mese(r.mese), r)), 10, D.sufficienza);
   const perPeriodo = barre(D.voti_per_periodo.filter((r) => r.numero).map((r) => riga(r.periodo, r)), 10, D.sufficienza);
-
-  const tabella = st.length ? `<div class="box"><table><thead><tr><th>Materia</th><th class="n">Media</th><th class="n">Voti</th><th class="n">Scritto</th><th class="n">Orale</th><th class="n">Pratico</th><th class="n">Min / Max</th><th class="n">Ultimo</th><th class="n">Andamento</th></tr></thead><tbody>
-    ${st.map((s) => { const [f, titolo, classe] = frecce[s.andamento] || ["·", "Pochi voti per dirlo", ""]; const c = s.insufficiente ? " insuff" : "";
-      return `<tr class="con-sotto${c}"><td><strong>${esc(s.materia)}</strong></td><td class="n ${s.insufficiente ? "bad" : ""}">${media(s.media)}</td><td class="n">${s.numero}</td>
-        <td class="n">${media(s.media_scritto)}</td><td class="n">${media(s.media_orale)}</td><td class="n">${media(s.media_pratico)}</td>
-        <td class="n">${num(s.minimo)} / ${num(s.massimo)}</td><td class="n">${num(s.ultimo)}</td><td class="n ${classe}" title="${titolo}">${f}</td></tr>
-        <tr class="sotto${c}"><td colspan="9">${testoMinimo(s)}${notaRegistro(s)}</td></tr>`; }).join("")}
-    </tbody></table></div>
-    <p class="note">Materie ordinate dalla media più bassa. «Andamento» confronta gli ultimi 3 voti con i precedenti.</p>` : '<div class="box"><div class="empty">Nessun voto registrato finora.</div></div>';
-
-  const fuori = (D.voti_fuori_media || []).map((v) => ({ ...v, fuori: true }));
-  const tutti = [...D.voti, ...fuori].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
-  const elenco = tutti.length ? `<div class="box"><table><thead><tr><th>Data</th><th>Materia</th><th class="n">Voto</th><th>Tipo</th><th>Prova</th></tr></thead><tbody>
-    ${tutti.map((v) => `<tr><td class="when">${dataBreve(v.data)}</td><td>${puntoNuovo(!v.fuori && nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${esc(v.docente)}</div></td>
-      <td class="n ${!v.fuori && v.valore < D.sufficienza ? "bad" : ""}"><strong>${esc(v.codice)}</strong>${v.fuori ? '<div><span class="tag">non fa media</span></div>' : ""}</td><td>${esc(v.tipo) || "—"}</td><td class="muted">${esc(v.descrizione)}</td></tr>`).join("")}
-    </tbody></table></div>${fuori.length ? '<p class="note">I voti segnati «non fa media» (giudizi senza numero o voti esclusi dal docente) non entrano in medie e grafici.</p>' : ""}` : "";
-
-  return `<div class="cards">
-      ${tessera(media(D.media_generale), "media generale")}
-      ${tessera(D.voti.length, "voti registrati")}
-      ${tessera(insufficienti, "materie insufficienti", insufficienti ? "bad" : "ok")}
-      ${tessera(migliore ? esc(migliore.materia) : "–", migliore ? `materia migliore (${media(migliore.media)})` : "materia migliore")}
-    </div>
-    <h2>Dove migliorare</h2>${listaConsigli(D.consigli)}
-    <h2>Grafici</h2>
-    <div class="grid2">
+  const grafici = `<div class="grid2">
       ${grafico("Media per materia", temaNothing() ? "Ogni puntino è un punto di media; la linea rossa segna la sufficienza." : "La lineetta verticale segna la sufficienza.", perMateria)}
       <div class="box pad"><div class="controllo"><div><p class="chart-title">Voti nel tempo</p>
         <p class="chart-sub">${materiaGrafico ? "Ogni punto è un voto." : "Ogni punto è un voto; la linea blu è la media progressiva."} La riga grigia più marcata è la sufficienza.</p></div>
@@ -533,155 +730,177 @@ function schedaVoti() {
       ${grafico("Scritto, orale e pratico", "Media per tipo di prova (tra parentesi il numero di voti).", perTipo)}
       ${grafico("Media per mese", "Come sono andati i voti mese per mese.", perMese)}
       ${grafico("Media per periodo", "Voti raggruppati per quadrimestre.", perPeriodo)}
+    </div>`;
+
+  const fuori = (D.voti_fuori_media || []).map((v) => ({ ...v, fuori: true }));
+  const tutti = [...D.voti, ...fuori].sort((a, b) => (a.data < b.data ? 1 : a.data > b.data ? -1 : 0));
+  const elenco = `<div class="box"><table><thead><tr><th>Data</th><th>Materia</th><th class="n">Voto</th><th>Tipo</th><th>Prova</th></tr></thead><tbody>
+    ${tutti.map((v) => `<tr><td class="when">${dataBreve(v.data)}</td><td>${puntoNuovo(!v.fuori && nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${esc(v.docente)}</div></td>
+      <td class="n ${!v.fuori && v.valore < D.sufficienza ? "bad" : ""}"><strong>${esc(v.codice)}</strong>${v.fuori ? '<div><span class="tag">non fa media</span></div>' : ""}</td><td>${esc(v.tipo) || "—"}</td><td class="muted">${esc(v.descrizione)}</td></tr>`).join("")}
+    </tbody></table></div>${fuori.length ? '<p class="note">I voti segnati «non fa media» (giudizi senza numero o voti esclusi dal docente) non entrano in medie e grafici.</p>' : ""}`;
+  const recenti = tutti.filter((v) => !v.fuori).slice(0, 5);
+  const ultimi = recenti.length ? `<div class="box"><ul class="ultimi-voti">${recenti.map((v) => `<li><span class="voto${v.valore < D.sufficienza ? " sotto" : ""}">${esc(v.codice)}</span>
+      <div>${puntoNuovo(nuovo("voti", chiaveVoto(v)))}<strong>${esc(v.materia)}</strong><div class="muted">${[v.tipo, dataLunga(v.data)].filter(Boolean).map(esc).join(" · ")}</div></div></li>`).join("")}</ul></div>`
+    : '<div class="box"><div class="empty">Ancora nessun voto.</div></div>';
+
+  // Due colonne sul PC (a sinistra cosa fare e le materie, a destra simulatore e ultimi voti), una sola sul telefono.
+  return `<div class="cards">
+      ${tessera(media(D.media_generale), "media generale")}
+      ${tessera(D.voti.length, "voti registrati")}
+      ${tessera(insufficienti, "materie sotto il 6", insufficienti ? "bad" : "ok")}
+      ${tessera(migliore ? esc(migliore.materia) : "–", migliore ? `materia migliore (${media(migliore.media)})` : "materia migliore")}
     </div>
-    <h2>Materia per materia</h2>${tabella}
-    <h2>Simulatore «e se prendo…»</h2>${simulatore()}
-    ${elenco ? `<h2>Tutti i voti</h2>${elenco}` : ""}`;
+    <div class="voti-griglia"><div class="voti-colonna">
+      ${titolo("Cosa fare adesso")}${azioniVoti()}
+      ${titolo("Le tue materie", st.length ? "dalla media più bassa" : "")}${st.length ? `<div class="materie">${st.map(schedaMateria).join("")}</div>` : '<div class="box"><div class="empty">Nessun voto registrato finora.</div></div>'}
+    </div><div class="voti-colonna">
+      ${titolo("Che voto mi serve?")}${simulatore()}
+      ${titolo("Ultimi voti")}${ultimi}
+    </div></div>
+    <div class="sezioni">
+      ${D.consigli.length ? sezione("consigli", "Tutti i consigli", D.consigli.length, listaConsigli(D.consigli)) : ""}
+      ${sezione("grafici", "Grafici", 6, grafici)}
+      ${tutti.length ? sezione("voti", "Tutti i voti", tutti.length, elenco) : ""}
+    </div>`;
 }
+
+// Un giorno «pieno»: due verifiche, oppure quattro cose in tutto tra compiti e verifiche.
+const giornoPieno = (x) => x.verifiche.length >= 2 || x.verifiche.length + x.compiti.length >= 4;
+const maiuscola = (testo) => testo.replace(/^./, (c) => c.toUpperCase());
+// Un blocco delle schede a due colonne: sul telefono i blocchi di entrambe le colonne si mettono in fila secondo «ordine».
+const blocco = (ordine, html) => (html ? `<div class="blocco" style="order:${ordine}">${html}</div>` : "");
 
 function schedaCarico() {
   const c = D.carico, blu = "var(--series-1)", arancio = "var(--series-2)";
+  const impegni = impegniPerGiorno(), nessuno = { verifiche: [], promemoria: [], compiti: [], variazioni: [] };
+  const di = (iso) => impegni.get(iso) || nessuno;
+  const giorni = Array.from({ length: 14 }, (_, i) => spostaGiorni(D.oggi, i));
+  if (!giorni.includes(giornoCarico)) giornoCarico = D.oggi;
+  const pieni = giorni.filter((g) => giornoPieno(di(g)));
   const inElenco = D.compiti.length, fattiElenco = D.compiti.filter((x) => fatti.has(x.id)).length;
-  const dettaglio = (r) => `${plurale(r.compiti, "compito", "compiti")} · ${plurale(r.verifiche, "verifica", "verifiche")}`;
-  const maxMateria = Math.max(1, ...c.per_materia.map((r) => r.compiti + r.verifiche));
-  const maxDocente = Math.max(1, ...c.per_docente.map((r) => r.compiti + r.verifiche));
-  const righe = (lista, chiave) => lista.map((r) => ({
-    label: r[chiave], segmenti: [{ v: r.compiti, colore: blu }, { v: r.verifiche, colore: arancio }],
-    val: `<strong>${r.compiti}</strong> + <strong>${r.verifiche}</strong>`, tip: `<b>${esc(r[chiave])}</b><br>${dettaglio(r)}`,
-  }));
+  const corrente = c.per_settimana.find((s) => s.corrente) || { compiti: 0, verifiche: 0 };
+  const questa = corrente.compiti + corrente.verifiche;
+  const mediaSett = c.media_compiti_settimana == null ? null : c.media_compiti_settimana + (c.media_verifiche_settimana || 0);
+  const scarto = mediaSett == null ? 0 : Math.round(questa - mediaSett);
+  const rispetto = mediaSett == null ? "" : `<small class="${scarto > 0 ? "bad" : scarto < 0 ? "ok" : "muted"}">${scarto ? `${scarto > 0 ? "▲" : "▼"} ${Math.abs(scarto)} ${scarto > 0 ? "sopra" : "sotto"} la media` : "come la media"}</small>`;
+
+  const casella = (g) => {
+    const x = di(g), d = giorno(g), cose = x.compiti.length + x.verifiche.length;
+    const classe = ["giorno-14", g === D.oggi ? "oggi" : "", g === giornoCarico ? "scelto" : "", giornoPieno(x) ? "pieno" : cose ? "con" : ""].filter(Boolean).join(" ");
+    const punti = x.compiti.slice(0, 5).map((k) => `<i class="c${fatti.has(k.id) ? " fatto" : ""}"></i>`).join("") + x.verifiche.slice(0, 3).map(() => '<i class="v"></i>').join("");
+    return `<button type="button" class="${classe}" data-giorno-carico="${g}" aria-pressed="${g === giornoCarico}"
+      aria-label="${esc(`${dataLunga(g)}: ${plurale(x.compiti.length, "compito", "compiti")}, ${plurale(x.verifiche.length, "verifica", "verifiche")}`)}">
+      <span>${GIORNI[d.getDay()].slice(0, 3)}</span><b>${d.getDate()}</b><span class="punti-14" aria-hidden="true">${punti}</span></button>`;
+  };
+  // Una pillola per materia, con «×2» se ce n'è più di una.
+  const pillole = (materie, classe) => [...materie.reduce((m, x) => m.set(x, (m.get(x) || 0) + 1), new Map())]
+    .map(([m, n]) => `<span class="pillola ${classe}">${esc(m)}${n > 1 ? ` ×${n}` : ""}</span>`).join("");
+  const cartaPieno = (g) => {
+    const x = di(g), prima = x.verifiche.find((p) => p.materia);
+    return `<li><div class="pieno-testa"><strong>${maiuscola(dataLunga(g))}</strong><span class="muted">${quando(g)}</span>
+      <span class="tag bad">${[x.verifiche.length ? plurale(x.verifiche.length, "verifica", "verifiche") : "", x.compiti.length ? plurale(x.compiti.length, "compito", "compiti") : ""].filter(Boolean).join(" · ")}</span></div>
+      <div class="pillole">${pillole(x.verifiche.map((p) => p.materia || "Verifica"), "v")}${pillole(x.compiti.filter((k) => !fatti.has(k.id)).map((k) => k.materia), "")}${pillole(x.compiti.filter((k) => fatti.has(k.id)).map((k) => k.materia), "fatto")}</div>
+      <p class="muted">${prima ? `Consiglio: comincia a preparare ${esc(prima.materia)} già oggi.` : "Consiglio: porta avanti qualche compito nei giorni prima."}</p></li>`;
+  };
+  const lista = (caricoPer === "docente" ? c.per_docente.map((r) => ({ ...r, nome: r.docente })) : c.per_materia.map((r) => ({ ...r, nome: r.materia })));
+  const massimo = Math.max(1, ...lista.map((r) => r.compiti + r.verifiche));
+  const provenienza = `<div class="box pad"><div class="segmenti" role="group" aria-label="Raggruppa">
+      ${[["materia", "Per materia"], ["docente", "Per docente"]].map(([k, t]) => `<button type="button" class="btn small${caricoPer === k ? "" : " ghost"}" data-carico-per="${k}" aria-pressed="${caricoPer === k}">${t}</button>`).join("")}</div>
+    ${lista.length ? `<ul class="provenienza">${(caricoTutte ? lista : lista.slice(0, 5)).map((r) => `<li><div class="prov-testa"><strong>${esc(r.nome)}</strong>
+      <span class="muted">${plurale(r.compiti, "compito", "compiti")} · ${plurale(r.verifiche, "verifica", "verifiche")}</span></div>
+      <div class="prov-barra" role="img" aria-label="${esc(`${r.nome}: ${r.compiti} compiti e ${r.verifiche} verifiche`)}"><i class="c" style="width:${(r.compiti / massimo) * 100}%"></i><i class="v" style="width:${(r.verifiche / massimo) * 100}%"></i></div></li>`).join("")}</ul>
+      ${lista.length > 5 ? `<button type="button" class="link" data-carico-tutte>${caricoTutte ? "Mostra solo le prime 5" : `Mostra tutte (${lista.length}) ›`}</button>` : ""}`
+      : '<div class="empty">Ancora niente da contare.</div>'}</div>`;
+
   const settimane = segnaposto((w) => colonne(w, c.per_settimana.map((s) => ({
     label: dataBreve(s.inizio), valori: [s.compiti, s.verifiche], evid: s.corrente,
-    tip: `<b>Settimana del ${dataBreve(s.inizio)}${s.corrente ? " (questa)" : ""}</b><br>${dettaglio(s)}`,
+    tip: `<b>Settimana del ${dataBreve(s.inizio)}${s.corrente ? " (questa)" : ""}</b><br>${plurale(s.compiti, "compito", "compiti")} · ${plurale(s.verifiche, "verifica", "verifiche")}`,
   })), [blu, arancio], { titolo: "Compiti e verifiche per settimana" }));
-  const prossimi = segnaposto((w) => colonne(w, c.prossimi_giorni.map((g) => ({
-    label: `${GIORNI[giorno(g.data).getDay()].slice(0, 3)} ${giorno(g.data).getDate()}`, valori: [g.compiti, g.verifiche], evid: g.data === D.oggi,
-    tip: `<b>${dataLunga(g.data)}</b> · ${quando(g.data)}<br>${dettaglio(g)}`,
-  })), [blu, arancio], { titolo: "Prossimi 14 giorni" }));
   const giorniSettimana = segnaposto((w) => colonne(w, c.per_giorno_settimana.map((g) => ({
     label: g.giorno.slice(0, 3), valori: [g.compiti], tip: `<b>${g.giorno}</b><br>${plurale(g.compiti, "compito", "compiti")} da consegnare`,
   })), [blu], { titolo: "Compiti per giorno di consegna" }));
-  const pieni = c.prossimi_giorni.filter((g) => g.verifiche >= 2 || g.compiti + g.verifiche >= 4);
   const serie = legenda([["Compiti", blu], ["Verifiche", arancio]]);
 
+  // Sul PC: a sinistra i 14 giorni e da dove arriva il lavoro, a destra i giorni pieni e il resto; sul telefono in quest'ordine: 14 giorni, giorni pieni, provenienza, resto.
   return `<div class="cards">
-      ${tessera(c.totale_compiti, "compiti assegnati da inizio anno")}
-      ${tessera(c.totale_verifiche, "verifiche segnate da inizio anno")}
-      ${tessera(num(c.media_compiti_settimana), "compiti a settimana, in media")}
-      ${tessera(inElenco ? Math.round((fattiElenco / inElenco) * 100) + "%" : "–", `compiti spuntati (${fattiElenco} su ${inElenco} in elenco)`)}
+      ${tessera(questa, "compiti e verifiche questa settimana", "", rispetto)}
+      ${tessera(mediaSett == null ? "–" : num(Math.round(mediaSett * 10) / 10), "compiti e verifiche a settimana, in media")}
+      ${tessera(pieni.length, "giorni pieni nei prossimi 14", pieni.length ? "bad" : "")}
+      ${tessera(inElenco ? Math.round((fattiElenco / inElenco) * 100) + "%" : "–", `compiti spuntati (${fattiElenco} su ${inElenco})`, "", inElenco ? barra(fattiElenco / inElenco, "fatti") : "")}
     </div>
-    ${pieni.length ? `<h2>Giorni pieni in arrivo</h2><div class="box"><ul class="consigli">${pieni.map((g) => `<li class="attenzione"><span class="icona" aria-hidden="true">!</span><div><strong>${dataLunga(g.data)}</strong> <span class="muted">· ${quando(g.data)}</span><div class="muted">${dettaglio(g)}</div></div></li>`).join("")}</ul></div>` : ""}
-    <h2>Nel tempo</h2>
-    <div class="grid2">
-      ${grafico("Prossimi 14 giorni", "Cosa c'è da consegnare o da affrontare, giorno per giorno.", serie + prossimi)}
-      ${grafico("Per settimana", "Da inizio anno; in grassetto la settimana in corso.", serie + settimane)}
-    </div>
-    <h2>Da dove arriva il lavoro</h2>
-    <div class="grid2">
-      ${grafico("Per materia", "Compiti + verifiche da inizio anno.", serie + barre(righe(c.per_materia, "materia"), maxMateria))}
-      ${grafico("Per docente", "Chi assegna di più.", serie + barre(righe(c.per_docente, "docente"), maxDocente))}
-      ${grafico("Giorni di consegna", "In quali giorni della settimana cadono più compiti.", giorniSettimana)}
-    </div>`;
+    <div class="due-colonne"><div class="colonna">
+      ${blocco(1, `${titolo("Prossimi 14 giorni", "tocca un giorno")}<div class="box pad"><div class="quattordici">${giorni.map(casella).join("")}</div>${serie}</div>${giornoScelto(impegni, giornoCarico)}`)}
+      ${blocco(3, `${titolo("Da dove arriva il lavoro", "da inizio anno")}${provenienza}`)}
+    </div><div class="colonna">
+      ${blocco(2, pieni.length ? `${titolo("Giorni pieni in arrivo", plurale(pieni.length, "giorno", "giorni"))}<ul class="pieni">${pieni.map(cartaPieno).join("")}</ul>` : "")}
+      ${blocco(4, `<div class="sezioni">
+        ${sezione("k-settimane", "Per settimana", "da inizio anno", grafico("Per settimana", "Da inizio anno; in grassetto la settimana in corso.", serie + settimane))}
+        ${sezione("k-giorni", "Giorni di consegna", "", grafico("Giorni di consegna", "In quali giorni della settimana cadono più compiti.", giorniSettimana))}
+      </div>`)}
+    </div></div>`;
 }
 
 function schedaAssenze() {
-  const a = D.assenze, quota = a.limite_ore ? Math.min(100, (a.ore_perse / a.limite_ore) * 100) : 0;
-  const nomi = { assenza: "Assenza", ritardo: "Ritardo", uscita: "Uscita anticipata" };
-  const eventi = a.eventi.length ? `<div class="box"><table><thead><tr><th>Data</th><th>Tipo</th><th class="n">Ore perse</th><th>Stato</th><th>Dettagli</th></tr></thead><tbody>
-    ${a.eventi.slice().reverse().map((e) => `<tr><td class="when">${dataLunga(e.data)}</td><td>${nomi[e.tipo]}</td><td class="n">${e.ore == null ? '<span title="Non determinabile dai dati del registro">?</span>' : e.ore}</td>
+  const a = D.assenze, quota = a.limite_ore ? a.ore_perse / a.limite_ore : 0;
+  const livello = quota >= 0.8 ? "bad" : quota >= 0.6 ? "warn" : "ok";
+  const nomi = { assenza: "Assenza", ritardo: "Ritardo", uscita: "Uscita anticipata" }, lettere = { assenza: "A", ritardo: "R", uscita: "U" };
+  const ore = (e) => (e.ore == null ? "ore non ricavabili" : plurale(e.ore, "ora", "ore"));
+  const piene = Math.min(20, Math.round(quota * 20));
+  const tacche = barraTacche(Array.from({ length: 20 }, (_, i) => [1, [i < piene ? "si" : "", i >= 16 ? "rossa" : ""].join(" ").trim()]), `${a.ore_perse} ore perse su ${a.limite_ore}`);
+  const giorniRimasti = a.ore_al_giorno && a.ore_rimaste > 0 ? Math.floor(a.ore_rimaste / a.ore_al_giorno) : null;
+  const previsione = a.previsione == null || !a.ore_perse ? "" : a.previsione <= a.limite_ore
+    ? `<p class="previsione ok">Al ritmo di adesso arrivi a fine anno con circa ${a.previsione} ore perse: sotto il limite. ✓</p>`
+    : `<p class="previsione bad">Al ritmo di adesso arrivi a fine anno con circa ${a.previsione} ore perse: oltre il limite di ${a.limite_ore}.</p>`;
+  const limite = `<div class="box pad limite"><div class="limite-testa"><div>
+      <span class="muted">${a.ore_rimaste >= 0 ? "Puoi ancora perdere" : "Hai superato il limite di"}</span>
+      <b class="limite-num ${livello}">${grande(plurale(Math.abs(a.ore_rimaste), "ora", "ore"))}</b>
+      ${giorniRimasti != null ? `<span class="muted">circa ${plurale(giorniRimasti, "giorno", "giorni")} di scuola</span>` : ""}</div>
+      <div class="limite-conto"><b>${a.ore_perse} / ${a.limite_ore}</b><span class="muted">ore perse · ${Math.round(quota * 100)}%</span></div></div>
+    ${tacche}<div class="limite-scala"><span>inizio anno</span><span><span class="bad">rosso dall'80%</span> · ${a.limite_ore} h</span></div>
+    ${previsione}
+    <p class="note">Il limite è il 25% del monte ore annuale, stimato in 32 ore per 33 settimane: puoi cambiare la stima in config.py. Finora sono state svolte ${a.ore_svolte} ore di lezione${a.percentuale == null ? "" : `: ne hai perse il ${num(a.percentuale)}%`}.
+    ${a.eventi_senza_ore ? ` Per ${plurale(a.eventi_senza_ore, "evento", "eventi")} le ore non si possono ricavare dal registro e non sono contate.` : ""}</p></div>`;
+  const recenti = a.eventi.slice().reverse();
+  const daGiust = recenti.filter((e) => e.da_giustificare);
+  const cartaGiust = (e) => `<li><span class="lettera">${lettere[e.tipo]}</span><div><strong>${nomi[e.tipo]} · ${maiuscola(dataLunga(e.data))}</strong>
+    <div class="muted">${[esc(e.nota), ore(e)].filter(Boolean).join(" · ")}</div></div></li>`;
+  const rigaEvento = (e) => `<li class="${e.tipo}"><span class="lettera" aria-hidden="true">${lettere[e.tipo]}</span><div><strong>${nomi[e.tipo]}</strong>
+    <div class="muted">${dataLunga(e.data)} · ${ore(e)}</div></div>${e.da_giustificare ? '<span class="bad">da giustificare</span>' : e.giustificata ? '<span class="ok">giustificata</span>' : ""}</li>`;
+  const tabella = `<div class="box"><table><thead><tr><th>Data</th><th>Tipo</th><th class="n">Ore perse</th><th>Stato</th><th>Dettagli</th></tr></thead><tbody>
+    ${recenti.map((e) => `<tr><td class="when">${dataLunga(e.data)}</td><td>${nomi[e.tipo]}</td><td class="n">${e.ore == null ? '<span title="Non determinabile dai dati del registro">?</span>' : e.ore}</td>
       <td>${e.da_giustificare ? '<span class="tag bad">da giustificare</span>' : e.giustificata ? "Giustificata" : "—"}</td><td class="muted">${esc(e.nota)}</td></tr>`).join("")}
-    </tbody></table></div>` : '<div class="box"><div class="empty">Nessuna assenza, ritardo o uscita registrati.</div></div>';
-  const maxMateria = Math.max(1, ...a.per_materia.map((r) => r.ore));
-  const perMateria = barre(a.per_materia.map((r) => ({ label: r.materia, segmenti: [{ v: r.ore, colore: "var(--series-1)" }], val: `<strong>${r.ore}</strong> h`, tip: `<b>${esc(r.materia)}</b><br>${plurale(r.ore, "ora persa", "ore perse")}` })), maxMateria);
+    </tbody></table></div>`;
+  const massimo = Math.max(1, ...a.per_materia.map((r) => r.ore));
+  const perMateria = a.per_materia.length ? `<div class="box pad"><ul class="ore-materia">${a.per_materia.map((r) => `<li><span>${esc(r.materia)}</span>
+      <div class="prov-barra" role="img" aria-label="${esc(`${r.materia}: ${plurale(r.ore, "ora persa", "ore perse")}`)}"><i class="c" style="width:${(r.ore / massimo) * 100}%"></i></div><b>${r.ore} h</b></li>`).join("")}</ul></div>`
+    : '<div class="box"><div class="empty">Nessuna ora persa finora.</div></div>';
   const perMese = a.per_mese.some((m) => m.ore) ? segnaposto((w) => colonne(w, a.per_mese.map((m) => ({ label: mese(m.mese), valori: [m.ore], tip: `<b>${mese(m.mese)}</b><br>${plurale(m.ore, "ora persa", "ore perse")}` })), ["var(--series-1)"], { titolo: "Ore perse per mese" })) : '<p class="muted">Nessuna ora persa finora.</p>';
 
-  return `<div class="cards">
-      ${tessera(a.ore_perse, "ore di lezione perse")}
-      ${tessera(a.giorni_assenza, "giorni di assenza")}
-      ${tessera(a.ritardi, "ritardi")}
-      ${tessera(a.uscite, "uscite anticipate")}
-      ${tessera(a.da_giustificare, "da giustificare", a.da_giustificare ? "bad" : "ok")}
-    </div>
-    <h2>Limite di assenze</h2>
-    <div class="box pad">
-      <p class="chart-title">Puoi ancora perdere ${plurale(Math.max(0, a.ore_rimaste), "ora", "ore")}</p>
-      <div class="meter${quota >= 80 ? " alto" : ""}" ${tip(`<b>${a.ore_perse} ore perse</b> su ${a.limite_ore} consentite`)}><i style="width:${quota}%"></i></div>
-      <p class="note" style="margin:0">${a.ore_perse} ore perse su un massimo di ${a.limite_ore} (il 25% del monte ore annuale, stimato in 32 ore per 33 settimane: puoi cambiare la stima in config.py).
-      Finora sono state svolte ${a.ore_svolte} ore di lezione${a.percentuale == null ? "" : `: ne hai perse il ${num(a.percentuale)}%`}.</p>
-      ${a.eventi_senza_ore ? `<p class="note">Per ${plurale(a.eventi_senza_ore, "evento", "eventi")} le ore non si possono ricavare dal registro e non sono contate.</p>` : ""}
-    </div>
-    <h2>Dettaglio</h2>${eventi}
-    <h2>Dove hai perso ore</h2>
-    <div class="grid2">
-      ${grafico("Per materia", "Ore di lezione saltate in ogni materia.", perMateria)}
-      ${grafico("Per mese", "Ore perse mese per mese.", perMese)}
-    </div>`;
+  // Sul PC: a sinistra limite, numeri e materie; a destra da giustificare, ultimi eventi e il resto. Sul telefono in quest'ordine: limite, numeri, da giustificare, eventi, materie, resto.
+  return `<div class="due-colonne assenze"><div class="colonna">
+      ${blocco(1, `${titolo("Limite di assenze")}${limite}`)}
+      ${blocco(2, `<div class="cards">
+        ${tessera(a.ore_perse, "ore di lezione perse")}
+        ${tessera(a.giorni_assenza, "giorni di assenza")}
+        ${tessera(a.ritardi, "ritardi")}
+        ${tessera(a.uscite, "uscite anticipate")}
+        ${tessera(a.da_giustificare, "da giustificare", a.da_giustificare ? "bad" : "ok")}
+      </div>`)}
+      ${blocco(5, `${titolo("Dove hai perso ore")}${perMateria}`)}
+    </div><div class="colonna">
+      ${blocco(3, daGiust.length ? `${titolo("Da giustificare", daGiust.length)}<ul class="giustificare">${daGiust.map(cartaGiust).join("")}</ul>` : "")}
+      ${blocco(4, `${titolo("Ultimi eventi", recenti.length > 4 ? `<button type="button" class="link" data-apri-sezione="as-eventi">tutti (${recenti.length}) ›</button>` : "")}
+        ${recenti.length ? `<div class="box"><ul class="eventi-assenze">${recenti.slice(0, 4).map(rigaEvento).join("")}</ul></div>` : '<div class="box"><div class="empty">Nessuna assenza, ritardo o uscita registrati.</div></div>'}`)}
+      ${blocco(6, `<div class="sezioni">
+        ${sezione("as-mesi", "Ore perse per mese", "", grafico("Per mese", "Ore perse mese per mese.", perMese))}
+        ${recenti.length ? sezione("as-eventi", "Tutti gli eventi", recenti.length, tabella) : ""}
+      </div>`)}
+    </div></div>`;
 }
 
-/* ---------- piano di studio ---------- */
-
-// Quattro passi brevi prima di ogni verifica: si studia scrivendo poco e a libro chiuso, così si capisce invece di ricopiare.
-const PASSI_STUDIO = [
-  { prima: 4, titolo: "Fai la mappa", testo: "Sfoglia gli argomenti e scrivi l'elenco di cosa devi sapere: una riga per argomento, niente di più.", min: 20 },
-  { prima: 3, titolo: "Scrivi a libro chiuso", testo: "Per ogni argomento scrivi 3–5 righe senza guardare, poi controlla sul libro e correggi con un altro colore.", min: 40 },
-  { prima: 2, titolo: "Interrogati", testo: "Inventa 5–10 domande e rispondi senza guardare. Segna quelle che sbagli.", min: 30 },
-  { prima: 1, titolo: "Ripasso finale", testo: "Ripeti ad alta voce e rivedi solo le domande che avevi sbagliato.", min: 20 },
-];
+/* ---------- verifiche ---------- */
 
 const verificheFuture = () => D.promemoria.filter((p) => p.verifica && giorniDa(p.data) >= 0);
-
-// I passi di ogni verifica in arrivo. Un passo il cui giorno è già passato (verifica segnata tardi) slitta a oggi.
-function pianoStudio() {
-  const passi = [];
-  verificheFuture().filter((p) => giorniDa(p.data) >= 1).forEach((p) => {
-    const sigla = piega(p.materia).replace(/[^a-z0-9]+/g, "").slice(0, 24) || "verifica";
-    PASSI_STUDIO.forEach((s) => {
-      const previsto = spostaGiorni(p.data, -s.prima);
-      passi.push({ ...s, id: `studio-${p.data}-${sigla}-${s.prima}`, verifica: p, giorno: previsto < D.oggi ? D.oggi : previsto, slittato: previsto < D.oggi });
-    });
-  });
-  return passi.sort((a, b) => (a.giorno < b.giorno ? -1 : a.giorno > b.giorno ? 1 : b.prima - a.prima));
-}
-
-function listaPassi(passi, conMateria) {
-  return `<ul class="todo">${passi.map((s) => `<li class="${fatti.has(s.id) ? "fatto" : ""}"><label>
-    <input type="checkbox" data-id="${s.id}" ${fatti.has(s.id) ? "checked" : ""}>
-    <span>${conMateria ? `<strong>${esc(s.verifica.materia)}</strong> — ` : ""}<b>${s.titolo}</b> <span class="muted">(${s.min} min)</span>
-      <span class="muted passo">${s.testo}</span></span></label></li>`).join("")}</ul>`;
-}
-
-function schedaStudio() {
-  const passi = pianoStudio();
-  const oggi = passi.filter((s) => s.giorno === D.oggi);
-  const daFareOggi = oggi.filter((s) => !fatti.has(s.id));
-  const perVerifica = new Map();
-  passi.forEach((s) => { const k = `${s.verifica.data}|${s.verifica.materia}`; perVerifica.set(k, [...(perVerifica.get(k) || []), s]); });
-  const verificaOggi = verificheFuture().filter((p) => giorniDa(p.data) === 0);
-  if (!perVerifica.size) return `${verificaOggi.length ? `<div class="avviso">Oggi hai ${plurale(verificaOggi.length, "verifica", "verifiche")}: ${verificaOggi.map((p) => esc(p.materia)).join(", ")}. In bocca al lupo!</div>` : ""}
-    <div class="box" style="margin-top:20px"><div class="empty">Nessuna verifica in arrivo: niente da pianificare. Quando ne compare una sul registro, qui trovi il piano giorno per giorno.</div></div>`;
-  const schede = [...perVerifica.values()].map((lista) => {
-    const p = lista[0].verifica, fattiN = lista.filter((s) => fatti.has(s.id)).length;
-    const perGiorno = new Map();
-    lista.forEach((s) => perGiorno.set(s.giorno, [...(perGiorno.get(s.giorno) || []), s]));
-    const n = giorniDa(p.data);
-    // Conto alla rovescia grande (a punti col tema «Nothing») e un puntino per ogni passo, pieno quando è spuntato.
-    return `<div class="box"><div class="pad-s conto-verifica">
-        <div class="conto-num${n <= 1 ? " urgente" : ""}">${temaNothing() ? aPunti(String(n).padStart(2, "0"), 5) : `<b>${n}</b>`}<span>${n === 1 ? "giorno" : "giorni"}</span></div>
-        <div class="conto-info"><h3>${esc(p.materia) || "Verifica"}</h3>
-          <p class="muted" style="margin:2px 0 0">${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${esc(p.testo)}</p>
-          <div class="passi-punti" aria-hidden="true">${lista.map((s) => `<i class="${fatti.has(s.id) ? "si" : ""}"></i>`).join("")}</div>
-          <span class="muted passi-conto">${fattiN} di ${lista.length} passi</span></div></div>
-      ${[...perGiorno].map(([g, s]) => `<div class="day">${g === D.oggi ? "Oggi" : dataLunga(g)}${g === D.oggi && s.some((x) => x.slittato) ? ' <span class="muted">· recupero: la verifica è stata segnata da poco</span>' : ""}</div>${listaPassi(s, false)}`).join("")}</div>`;
-  }).join("");
-  return `<div class="cards">
-      ${tessera(perVerifica.size, perVerifica.size === 1 ? "verifica da preparare" : "verifiche da preparare")}
-      ${tessera(daFareOggi.length, "passi da fare oggi", daFareOggi.length ? "" : "ok")}
-      ${tessera(daFareOggi.reduce((t, s) => t + s.min, 0) + " min", "di studio oggi, circa")}
-    </div>
-    <h2>Oggi</h2>${oggi.length ? `<div class="box">${listaPassi(oggi, true)}</div>` : '<div class="box"><div class="empty">Oggi niente studio in programma.</div></div>'}
-    <h2>Verifica per verifica</h2><div class="piano">${schede}</div>
-    <p class="note">Ogni verifica ha 4 passi brevi nei giorni prima: mappa degli argomenti, poche righe scritte a libro chiuso, domande senza guardare, ripasso degli errori.
-      Scrivere poco e senza il libro aperto ti obbliga a capire invece di ricopiare. Le spunte si sincronizzano con il telefono come quelle dei compiti.</p>`;
-}
 
 /* ---------- oggi ---------- */
 
@@ -698,86 +917,106 @@ function dettagliLezione(l) {
   return esc([l.aule.length ? "aula " + l.aule.join(", ") : "", l.docenti.join(", ")].filter(Boolean).join(" · "));
 }
 
+// Il conto alla rovescia fino a un orario di oggi («−20:00»): lo aggiorna ogni secondo il timer in fondo al file.
+function contoGiu(hhmm) {
+  const s = Math.max(0, Math.ceil((minuti(hhmm) * 60000 - (Date.now() - new Date().setHours(0, 0, 0, 0))) / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), due = (n) => String(n).padStart(2, "0");
+  return "−" + (h ? `${h}:${due(m)}` : m) + ":" + due(s % 60);
+}
+const riquadroConto = (hhmm, etichetta) => `<div class="conto-giu"><b data-fine="${hhmm}">${contoGiu(hhmm)}</b><span>${etichetta}</span></div>`;
+
 function riquadroAdesso(lezioni) {
   const adesso = oraDi(new Date());
   const valide = lezioni.filter((l) => l.stato !== "annullata");
   const ora = valide.find((l) => l.inizio <= adesso && adesso < l.fine);
   const dopo = valide.find((l) => l.inizio > adesso && (!ora || l.inizio >= ora.fine));
   const tra = (hhmm) => { const n = minuti(hhmm) - minuti(adesso); return n < 60 ? `tra ${n} min` : `tra ${Math.floor(n / 60)} h ${n % 60 ? (n % 60) + " min" : ""}`.trim(); };
+  const quale = (l) => [...new Set(lezioni.map((x) => x.inizio))].sort().indexOf(l.inizio) + 1;
+  const dettagli = (l) => `${l.inizio}–${l.fine}${dettagliLezione(l) ? " · " + dettagliLezione(l) : ""}`;
   let corpo;
   if (ora) {
-    const fatto = Math.round(((minuti(adesso) - minuti(ora.inizio)) / Math.max(1, minuti(ora.fine) - minuti(ora.inizio))) * 100);
-    corpo = `<span class="etichetta">Adesso</span><span class="grande">${grande(ora.materia)}</span>
-      <span class="muted">fino alle ${ora.fine}${dettagliLezione(ora) ? " · " + dettagliLezione(ora) : ""}</span>
-      <div class="progresso"><i style="width:${fatto}%"></i></div>
+    // Una tacca ogni 5 minuti di lezione: piene quelle passate, a metà quella in corso.
+    const durata = Math.max(5, minuti(ora.fine) - minuti(ora.inizio)), passati = minuti(adesso) - minuti(ora.inizio);
+    const pezzi = Math.round(durata / 5), pieni = Math.min(pezzi, Math.floor((passati / durata) * pezzi));
+    corpo = `<div class="adesso-riga"><div class="adesso-testo"><span class="etichetta">Adesso · ${quale(ora)}ª ora</span><span class="grande">${grande(ora.materia)}</span>
+      <span class="muted">${dettagli(ora)}</span></div>${riquadroConto(ora.fine, "alla fine dell'ora")}</div>
+      ${barraTacche(Array.from({ length: pezzi }, (_, i) => [1, i < pieni ? "si" : i === pieni ? "ora" : ""]), `Passati ${passati} minuti su ${durata}`)}
       ${dopo ? `<div class="poi"><span class="etichetta">Dopo</span> <strong>${esc(dopo.materia)}</strong> <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span></div>` : '<div class="poi muted">È l\'ultima ora di oggi.</div>'}`;
   } else if (dopo) {
-    corpo = `<span class="etichetta">Prossima lezione · ${tra(dopo.inizio)}</span><span class="grande">${grande(dopo.materia)}</span>
-      <span class="muted">alle ${dopo.inizio}${dettagliLezione(dopo) ? " · " + dettagliLezione(dopo) : ""}</span>`;
+    corpo = `<div class="adesso-riga"><div class="adesso-testo"><span class="etichetta">Prossima lezione · ${tra(dopo.inizio)}</span><span class="grande">${grande(dopo.materia)}</span>
+      <span class="muted">${dettagli(dopo)}</span></div>${riquadroConto(dopo.inizio, "all'inizio")}</div>`;
   } else {
     const prossimo = prossimoGiornoDiScuola();
     const primo = lezioniOrario().filter((l) => l.data === prossimo && l.stato !== "annullata").sort((a, b) => (a.inizio < b.inizio ? -1 : 1))[0];
-    corpo = `<span class="etichetta">${valide.length ? "Lezioni finite per oggi" : "Oggi niente lezioni"}</span>
+    corpo = `<div class="adesso-testo"><span class="etichetta">${valide.length ? "Lezioni finite per oggi" : "Oggi niente lezioni"}</span>
       <span class="grande">${primo ? `${giorniDa(prossimo) === 1 ? "Domani" : dataLunga(prossimo).replace(/^./, (c) => c.toUpperCase())} si entra alle ${primo.inizio}` : "Goditi la pausa"}</span>
-      ${primo ? `<span class="muted">prima ora: ${esc(primo.materia)}${dettagliLezione(primo) ? " · " + dettagliLezione(primo) : ""}</span>` : ""}`;
+      ${primo ? `<span class="muted">prima ora: ${esc(primo.materia)}${dettagliLezione(primo) ? " · " + dettagliLezione(primo) : ""}</span>` : ""}</div>`;
   }
-  return `<div class="box pad adesso"><div class="adesso-testo">${corpo}</div>${anelloGiornata(lezioni)}</div>`;
+  return `<div class="box pad adesso">${corpo}</div>`;
 }
 
-// La giornata come un anello di puntini: sei per ogni ora di lezione, accesi man mano che il tempo passa.
-// Il puntino dell'istante attuale è rosso (e lampeggia); un'ora annullata resta vuota.
-function anelloGiornata(lezioni) {
-  const ore = [...new Map(lezioni.map((l) => [l.inizio, l])).values()];
-  if (!ore.length) return "";
-  const adesso = minuti(oraDi(new Date())), PER = 6, POSTI = ore.length * (PER + 1), R = 52, C = 60;
-  let punti = "", centro;
-  ore.forEach((l, i) => {
-    const a = minuti(l.inizio), b = minuti(l.fine);
-    const annullata = lezioni.filter((x) => x.inizio === l.inizio).every((x) => x.stato === "annullata");
-    const accesi = adesso >= b ? PER : adesso <= a ? 0 : Math.floor(((adesso - a) / Math.max(1, b - a)) * PER);
-    const inCorso = !annullata && adesso >= a && adesso < b;
-    if (inCorso) centro = `<b>${i + 1}ª ora</b><span>${b - adesso}' alla fine</span>`;
-    for (let k = 0; k < PER; k++) {
-      const angolo = -Math.PI / 2 + ((i * (PER + 1) + k + 0.5) / POSTI) * 2 * Math.PI;
-      const classe = annullata ? "vuoto" : inCorso && k === accesi ? "ora" : k < accesi ? "acceso" : "spento";
-      punti += `<circle class="${classe}" cx="${(C + R * Math.cos(angolo)).toFixed(1)}" cy="${(C + R * Math.sin(angolo)).toFixed(1)}" r="3.4"/>`;
-    }
-  });
-  if (!centro) centro = adesso < minuti(ore[0].inizio) ? `<b>${ore.length} ore</b><span>dalle ${ore[0].inizio}</span>` : `<b>Finito</b><span>${ore.length} ore fatte</span>`;
-  return `<div class="anello" role="img" aria-label="Avanzamento della giornata"><svg viewBox="0 0 120 120" aria-hidden="true">${punti}</svg><div class="anello-centro">${centro}</div></div>`;
+const VARIAZIONI = { supplenza: "supplenze", annullata: "annullate", "cambio aula": "cambi d'aula", spostata: "spostate", aggiuntiva: "aggiuntive" };
+
+// «5 ore · 1 supplenza · 1 annullata»: il riassunto accanto al titolo dell'orario.
+function riassuntoGiornata(lezioni) {
+  const conti = new Map();
+  lezioni.filter((l) => l.variazione).forEach((l) => conti.set(l.stato, (conti.get(l.stato) || 0) + 1));
+  return [plurale(new Set(lezioni.map((l) => l.inizio)).size, "ora", "ore"), ...[...conti].map(([s, n]) => `${n} ${n === 1 ? s : VARIAZIONI[s] || s}`)].map(esc).join(" · ");
 }
 
 function giornata(lezioni) {
   const adesso = oraDi(new Date());
   return `<div class="box"><ul class="giornata">${lezioni.map((l) => {
-    const classe = [l.fine <= adesso ? "passata" : l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata" ? "ora" : "", l.stato === "annullata" ? "annullata" : ""].join(" ");
+    const inCorso = l.inizio <= adesso && adesso < l.fine && l.stato !== "annullata", passata = l.fine <= adesso;
+    const classe = [passata ? "passata" : inCorso ? "ora" : "", l.stato === "annullata" ? "annullata" : ""].join(" ");
+    const stato = l.variazione ? `<span class="tag${l.nuova || l.stato === "annullata" ? " bad" : ""}">${esc(l.stato)}</span>`
+      : inCorso ? `<span class="tag accento">ancora ${minuti(l.fine) - minuti(adesso)}'</span>` : passata ? '<span class="muted fatta">✓ fatta</span>' : "";
     return `<li class="${classe}"><span class="ore">${l.inizio}–${l.fine}</span><div><strong>${esc(l.materia)}</strong>
-      ${l.variazione ? ` <span class="tag${l.nuova ? " bad" : ""}">${esc(l.stato)}</span>` : ""}
-      <div class="muted">${dettagliLezione(l)}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div></li>`;
+      <div class="muted">${dettagliLezione(l)}${l.variazione && dettagliVariazione(l) ? " · " + dettagliVariazione(l) : ""}</div></div>${stato}</li>`;
   }).join("")}</ul></div>`;
 }
+
+// Un titolo di sezione con, a destra, un riassunto in piccolo.
+const titolo = (testo, destra = "") => (destra ? `<h2 class="con-destra">${testo}<span class="h2-destra">${destra}</span></h2>` : `<h2>${testo}</h2>`);
 
 function schedaOggi() {
   const lezioni = lezioniOrario().filter((l) => l.data === D.oggi).sort((a, b) => (a.inizio < b.inizio ? -1 : a.inizio > b.inizio ? 1 : 0));
   const prossimo = prossimoGiornoDiScuola();
   const perOggi = D.compiti.filter((c) => c.consegna === D.oggi && !fatti.has(c.id));
   const perProssimo = D.compiti.filter((c) => c.consegna === prossimo);
-  const studio = pianoStudio().filter((s) => s.giorno === D.oggi);
-  const verifiche = verificheFuture().filter((p) => giorniDa(p.data) <= 7);
+  const fattiProssimo = perProssimo.filter((c) => fatti.has(c.id)).length;
+  const future = verificheFuture().sort((a, b) => (a.data < b.data ? -1 : 1));
+  const verifiche = future.filter((p) => giorniDa(p.data) <= 7);
   const nuoviVoti = D.voti.filter((v) => giorniDa(v.data) >= -3).sort((a, b) => (a.data < b.data ? 1 : -1));
+  const conVoto = nuoviVoti.filter((v) => v.valore != null);
+  const daFare = D.compiti.filter((c) => giorniDa(c.consegna) >= 0 && !fatti.has(c.id)).length;
+  const gg = future.length ? giorniDa(future[0].data) : null;
   const d = giorno(D.oggi);
   const titoloProssimo = giorniDa(prossimo) === 1 ? "Per domani" : `Per ${dataLunga(prossimo)}`;
+  // Tre colonne sul PC, una sola sul telefono (in quest'ordine): adesso e orario; compiti; verifiche e voti.
   return `<p class="oggi-data">${GIORNI[d.getDay()]} ${d.getDate()} ${MESI_LUNGHI[d.getMonth()]}</p>
-    ${D.orario ? riquadroAdesso(lezioni) : ""}
-    ${lezioni.length ? `<h2>Orario di oggi</h2>${giornata(lezioni)}` : ""}
-    ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
-    <h2>${titoloProssimo}</h2>${listaCompiti(perProssimo, "Niente da consegnare.")}
-    ${studio.length ? `<h2>Da studiare oggi</h2><div class="box">${listaPassi(studio, true)}</div>` : ""}
-    <h2>Verifiche nei prossimi 7 giorni</h2>${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => `<li class="${giorniDa(p.data) <= 1 ? "critico" : "attenzione"}">
-      <span class="icona conto" aria-hidden="true">${giorniDa(p.data)}</span>
-      <div>${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia)}</strong> <span class="muted">· ${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${quando(p.data)}</span><div class="muted">${esc(p.testo)}</div></div></li>`).join("")}</ul></div>`
-      : '<div class="box"><div class="empty">Nessuna verifica in vista.</div></div>'}
-    ${nuoviVoti.length ? `<h2>Voti degli ultimi giorni</h2><div class="cards" style="margin-top:0">${nuoviVoti.map((v) => tessera(esc(v.codice), `${puntoNuovo(nuovo("voti", chiaveVoto(v)))}${esc(v.materia)} · ${dataBreve(v.data)}`, v.valore < D.sufficienza ? "bad" : "ok")).join("")}</div>` : ""}`;
+    <div class="cards oggi-numeri">
+      ${tessera(daFare, "compiti da fare")}
+      ${tessera(verifiche.length, "verifiche nei prossimi 7 giorni")}
+      ${tessera(gg == null ? "–" : gg === 0 ? "oggi" : gg === 1 ? "domani" : `${gg} gg`, "alla prossima verifica", gg != null && gg <= 2 ? "bad" : "")}
+      ${tessera(media(D.media_generale), "media generale", D.media_generale != null && D.media_generale < D.sufficienza ? "bad" : "")}
+    </div>
+    <div class="oggi-griglia"><div class="oggi-colonna">
+      ${D.orario ? riquadroAdesso(lezioni) : ""}
+      ${lezioni.length ? `${titolo("Orario di oggi", riassuntoGiornata(lezioni))}${giornata(lezioni)}` : ""}
+    </div><div class="oggi-colonna">
+      ${perOggi.length ? `<h2>Da consegnare oggi <span class="tag bad">non spuntati</span></h2>${listaCompiti(perOggi, "")}` : ""}
+      ${titolo(titoloProssimo, perProssimo.length ? `${fattiProssimo} di ${perProssimo.length} fatti` : "")}${listaCompiti(perProssimo, "Niente da consegnare.",
+        perProssimo.length ? `<div class="box-barra">${barra(fattiProssimo / perProssimo.length, "fatti")}</div>` : "")}
+    </div><div class="oggi-colonna">
+      ${titolo("Verifiche nei prossimi 7 giorni")}${verifiche.length ? `<div class="box"><ul class="consigli">${verifiche.map((p) => { const n = giorniDa(p.data); return `<li class="${n <= 1 ? "critico" : "attenzione"}">
+        <span class="icona conto" aria-hidden="true">${n === 0 ? "<small>oggi</small>" : `<b>${n}</b><small>${n === 1 ? "giorno" : "giorni"}</small>`}</span>
+        <div>${puntoNuovo(nuovo("verifiche", chiaveVerifica(p)))}<strong>${esc(p.materia)}</strong> <span class="muted">· ${dataLunga(p.data)}${p.orario ? " · " + esc(p.orario) : ""} · ${quando(p.data)}</span><div class="muted">${esc(p.testo)}</div></div></li>`; }).join("")}</ul></div>`
+        : '<div class="box"><div class="empty">Nessuna verifica in vista.</div></div>'}
+      ${nuoviVoti.length ? `${titolo("Voti degli ultimi giorni", conVoto.length > 1 ? "media " + num(Math.round((conVoto.reduce((t, v) => t + v.valore, 0) / conVoto.length) * 10) / 10) : "")}
+        <div class="cards oggi-voti">${nuoviVoti.map((v) => tessera(esc(v.codice), `${puntoNuovo(nuovo("voti", chiaveVoto(v)))}${esc(v.materia)} · ${dataBreve(v.data)}`, v.valore < D.sufficienza ? "bad" : "ok",
+          v.valore == null ? "" : barra(v.valore / 10, v.valore < D.sufficienza ? "basso" : "alto"))).join("")}</div>` : ""}
+    </div></div>`;
 }
 
 /* ---------- ricerca nei compiti ---------- */
@@ -822,7 +1061,7 @@ function aggiornaRicerca() {
 const chiaveCalendario = () => `calendario-${(P && P.attivo) || ""}`;
 function giaCopiati() { try { return new Set(JSON.parse(localStorage.getItem(chiaveCalendario()) || "[]")); } catch { return new Set(); } }
 
-const calOpz = { verifiche: true, compiti: true, studio: false, nuovi: true };
+const calOpz = { verifiche: true, compiti: true, nuovi: true };
 let calendarioAperto = false;
 let vociMostrate = []; // le voci che sono ora nel riquadro di testo
 
@@ -836,9 +1075,6 @@ function vociCalendario() {
   if (calOpz.compiti) D.compiti.filter((c) => giorniDa(c.consegna) >= 0 && !fatti.has(c.id)).forEach((c) => {
     voci.push([`c|${c.id}`, c.consegna, `- Compito di ${c.materia} — da consegnare ${dataCompleta(c.consegna)} (tutto il giorno): ${c.testo}`]);
   });
-  if (calOpz.studio) pianoStudio().filter((s) => !fatti.has(s.id)).forEach((s) => {
-    voci.push([`s|${s.id}`, s.giorno, `- Studio ${s.verifica.materia}: ${s.titolo} (${s.min} min) — ${dataCompleta(s.giorno)}, nel pomeriggio. ${s.testo}`]);
-  });
   const solo = calOpz.nuovi ? giaCopiati() : new Set();
   return voci.filter(([k]) => !solo.has(k)).sort((a, b) => (a[1] < b[1] ? -1 : a[1] > b[1] ? 1 : 0));
 }
@@ -851,12 +1087,12 @@ function testoCalendario(voci) {
 function riquadroCalendario() {
   vociMostrate = vociCalendario();
   const opzione = (k, nome) => `<label><input type="checkbox" data-cal="${k}" ${calOpz[k] ? "checked" : ""}> ${nome}</label>`;
-  return `<details class="box pad calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Testo per Google Calendar</summary>
+  return `<details class="sezione calendario" id="calendario"${calendarioAperto ? " open" : ""}><summary>Copia nel calendario di Google</summary><div class="sezione-corpo">
     <p class="note">Copia il testo e incollalo nell'assistente di Google Calendar (o in Gemini): crea lui gli eventi. Con «Solo le novità» non ti ritrovi doppioni.</p>
-    <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("studio", "Piano di studio")}${opzione("nuovi", "Solo le novità")}</div>
+    <div class="opzioni">${opzione("verifiche", "Verifiche")}${opzione("compiti", "Compiti")}${opzione("nuovi", "Solo le novità")}</div>
     <textarea id="cal-testo" readonly aria-label="Testo per il calendario">${esc(testoCalendario(vociMostrate))}</textarea>
     <div class="segmenti" style="margin-top:10px"><button type="button" class="btn small" id="cal-copia">Copia</button>
-      <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></details>`;
+      <button type="button" class="btn ghost small" id="cal-azzera">Dimentica cosa ho già copiato</button></div></div></details>`;
 }
 
 function aggiornaCalendario() {
@@ -875,7 +1111,7 @@ async function copiaCalendario() {
   setTimeout(() => { if ($("#cal-copia")) $("#cal-copia").textContent = "Copia"; }, 2000);
 }
 
-const CONTENUTO = { oggi: schedaOggi, agenda: schedaAgenda, compiti: schedaCompiti, studio: schedaStudio, orario: schedaOrario, voti: schedaVoti, carico: schedaCarico, assenze: schedaAssenze };
+const CONTENUTO = { oggi: schedaOggi, agenda: schedaAgenda, compiti: schedaCompiti, orario: schedaOrario, voti: schedaVoti, carico: schedaCarico, assenze: schedaAssenze };
 
 /* ---------- disegno e interazione ---------- */
 
@@ -899,13 +1135,13 @@ function applica(dati) {
   D = dati;
   fatti = new Set(Object.keys(dati.stato.fatti));
   if (D.vuoto) {
-    impostaTitolo(D.profilo ? D.profilo.nome : "Registro");
+    impostaTitolo(D.profilo ? D.profilo.nome : "Zaino");
     $("#aggiornato").textContent = "Nessun dato ancora scaricato.";
     SCHEDE.forEach((s) => { $(`#tab-${s}`).innerHTML = ""; });
     return;
   }
   caricaVisti();
-  impostaTitolo("Registro", D.studente ? "di " + D.studente : "");
+  impostaTitolo("Zaino", D.studente ? "di " + D.studente : "");
   const t = new Date(D.scaricato);
   $("#aggiornato").textContent = `${D.classe ? "Classe " + D.classe + " · " : ""}aggiornato ${quando(D.scaricato) === "oggi" ? "oggi" : "il " + dataBreve(D.scaricato)} alle ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")}`;
   mostra();
@@ -947,7 +1183,7 @@ function schermo(profili) {
   $("#aggiorna").hidden = profili;
   $("#apri-profili").hidden = profili || !P;
   if (profili) {
-    impostaTitolo("Registro");
+    impostaTitolo("Zaino");
     $("#aggiornato").textContent = P && P.profili.length ? "Scegli con quale profilo entrare." : "Per iniziare crea il tuo profilo.";
     disegnaProfili();
   }
@@ -1148,7 +1384,7 @@ async function entra(id) {
     avviso(errore.message, true);
     return;
   }
-  simulati = []; settimanaOrario = 0; materiaGrafico = "";
+  simulati = []; simVoto = null; settimanaOrario = 0; oraOrario = null; materiaGrafico = ""; meseAgenda = 0; giornoAgenda = null; settimanaCompitiScelta = 0; giornoCompiti = null; giornoCarico = null; caricoPer = "materia"; caricoTutte = false;
   schermo(false);
   mostra();
   await sincronizza(); // se il PC ha dati più freschi, sul telefono non serve riscaricarli
@@ -1156,7 +1392,7 @@ async function entra(id) {
 }
 
 function firma() {
-  return `<p class="muted versione">Parser Compiti ${esc(P.versione || "")} · 100% locale: i dati restano su questo dispositivo.</p>`;
+  return `<p class="muted versione">Zaino ${esc(P.versione || "")} · 100% locale: i dati restano su questo dispositivo.</p>`;
 }
 
 async function apriProfili() {
@@ -1220,7 +1456,7 @@ document.addEventListener("change", (e) => {
   if (el.dataset.id) spunta(el.dataset.id, el.checked);
   else if (el.id === "nascondi") { nascondiFatti = el.checked; mostra(); }
   else if (el.id === "materia-grafico") { materiaGrafico = el.value; mostra(); }
-  else if (el.id === "sim-materia") { simMateria = el.value; mostra(); }
+  else if (el.id === "sim-voto") { const v = parseFloat(el.value.replace(",", ".")); if (v >= 1 && v <= 10) { simVoto = v; mostra(); } }
   else if (el.name === "registro") { leggiModulo(); disegnaProfili(); }
   else if (el.dataset.cal) { calOpz[el.dataset.cal] = el.checked; aggiornaCalendario(); }
   else if (el.id === "tema") {
@@ -1235,7 +1471,13 @@ document.addEventListener("change", (e) => {
 document.addEventListener("input", (e) => {
   if (e.target.id === "cerca-compiti") { ricerca = e.target.value; aggiornaRicerca(); }
 });
-document.addEventListener("toggle", (e) => { if (e.target.id === "calendario") calendarioAperto = e.target.open; }, true);
+document.addEventListener("toggle", (e) => {
+  if (e.target.id === "calendario") calendarioAperto = e.target.open;
+  const nome = e.target.dataset && e.target.dataset.sezione;
+  if (!nome || sezioniAperte.has(nome) === e.target.open) return; // anche il ridisegno con «open» fa scattare l'evento
+  if (e.target.open) sezioniAperte.add(nome); else sezioniAperte.delete(nome);
+  if (e.target.open && e.target.querySelector("[data-svg]")) mostra(); // da chiusi i grafici erano stati disegnati senza larghezza
+}, true);
 
 document.addEventListener("click", (e) => {
   const el = e.target.closest("button");
@@ -1247,12 +1489,31 @@ document.addEventListener("click", (e) => {
     mostra();
   }
   else if (el.id === "aggiorna") aggiorna();
-  else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; mostra(); }
-  else if (el.id === "sim-aggiungi") {
-    const voto = parseFloat($("#sim-voto").value.replace(",", "."));
-    if (voto >= 1 && voto <= 10) { simulati.push({ materia: simMateria, voto }); mostra(); }
+  else if (el.dataset.settimana) { settimanaOrario = +el.dataset.settimana; oraOrario = null; mostra(); }
+  else if (el.dataset.cella) { oraOrario = el.dataset.cella; mostra(); }
+  else if (el.dataset.sim) {
+    const daFuori = !el.closest("#simulatore"); // dalle schede o da «Cosa fare»: si scende fino al simulatore
+    simMateria = el.dataset.sim; simVoto = null; mostra();
+    if (daFuori) $("#simulatore")?.scrollIntoView({ behavior: "smooth", block: "start" });
   }
-  else if (el.id === "sim-azzera") { simulati = []; mostra(); }
+  else if (el.dataset.giorno) { giornoAgenda = el.dataset.giorno; mostra(); }
+  else if (el.dataset.giornoCarico) { giornoCarico = el.dataset.giornoCarico; mostra(); }
+  else if (el.dataset.caricoPer) { caricoPer = el.dataset.caricoPer; mostra(); }
+  else if (el.hasAttribute("data-carico-tutte")) { caricoTutte = !caricoTutte; mostra(); }
+  else if (el.dataset.apriSezione) {
+    sezioniAperte.add(el.dataset.apriSezione); mostra();
+    document.querySelector(`[data-sezione="${el.dataset.apriSezione}"]`)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
+  else if (el.dataset.giornoCompiti) { giornoCompiti = el.dataset.giornoCompiti; mostra(); }
+  else if (el.dataset.settCompiti) { settimanaCompitiScelta = +el.dataset.settCompiti ? settimanaCompitiScelta + +el.dataset.settCompiti : 0; giornoCompiti = null; mostra(); }
+  else if (el.dataset.mese) {
+    meseAgenda = +el.dataset.mese ? meseAgenda + +el.dataset.mese : 0;
+    if (!meseAgenda) giornoAgenda = D.oggi;
+    mostra();
+  }
+  else if (el.dataset.simVoto) { simVoto = +el.dataset.simVoto; mostra(); }
+  else if (el.id === "sim-aggiungi") { if (simVoto != null) { simulati.push({ materia: simMateria, voto: simVoto }); simVoto = null; mostra(); } }
+  else if (el.id === "sim-azzera") { simulati = []; simVoto = null; mostra(); }
   else if (el.dataset.togli) { simulati.splice(+el.dataset.togli, 1); mostra(); }
   else if (el.id === "apri-profili") apriProfili();
   else if (el.dataset.sync) comandoSync(el.dataset.sync);
@@ -1297,6 +1558,15 @@ function comunicaTema() {
 setInterval(() => {
   if (scheda === "oggi" && D && !D.vuoto && !document.hidden && !$("#app").hidden) mostra();
 }, 60000);
+
+// Il conto alla rovescia del riquadro «Adesso» scorre ogni secondo; a zero la scheda si ridisegna (inizia l'ora dopo).
+setInterval(() => {
+  if (scheda !== "oggi" || !D || D.vuoto || $("#app").hidden) return; // nelle altre schede il riquadro resta nascosto e fermo
+  document.querySelectorAll("#tab-oggi [data-fine]").forEach((el) => {
+    el.textContent = contoGiu(el.dataset.fine);
+    if (el.textContent === "−0:00" && !document.hidden) mostra();
+  });
+}, 1000);
 
 (async function avvio() {
   $("#tema").innerHTML = Object.entries(TEMI).map(([k, nome]) => `<option value="${k}"${k === temaScelto ? " selected" : ""}>${nome}</option>`).join("");

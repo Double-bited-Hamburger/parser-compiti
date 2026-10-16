@@ -35,7 +35,7 @@ INDIRIZZO = config.INDIRIZZO
 # ognuna con il profilo scelto nel proprio cookie.
 BLOCCO = threading.RLock()
 UN_ANNO = 365 * 86400
-SENZA_GETTONE = """<!doctype html><meta charset="utf-8"><title>Registro</title>
+SENZA_GETTONE = """<!doctype html><meta charset="utf-8"><title>Zaino</title>
 <p style="font:16px system-ui;margin:2em">Apri il registro con <b>avvia.bat</b> su Windows o <b>avvia.sh</b> su Linux e macOS:
 per proteggere i tuoi dati la pagina risponde solo al collegamento che apre l'app.</p>""".encode()
 SICUREZZA = (
