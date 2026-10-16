@@ -4,7 +4,7 @@
 
 Prima versione stabile: tutta l'interfaccia è stata ridisegnata, scheda per scheda.
 
-- **Nuovo nome: Zaino** (prima «Parser Compiti», e «Registro» in cima alla pagina e sul telefono). L'app sul telefono si aggiorna sopra quella vecchia, con tutti i dati.
+- **Nuovo nome: Zaino** (prima «Parser Compiti», e «Registro» in cima alla pagina e sul telefono). Sul telefono l'app è firmata con una chiave nuova: chi ha la 0.2 la disinstalla una volta e installa la 0.5; profili, password e spunte tornano dal PC con la sincronizzazione.
 
 - **Scheda «Oggi» ridisegnata**:
   - in alto quattro numeri: compiti da fare, verifiche della settimana, giorni alla prossima verifica, media generale;
