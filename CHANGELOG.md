@@ -1,6 +1,8 @@
 # Novità
 
-## In arrivo
+## 0.5.0
+
+Prima versione stabile: tutta l'interfaccia è stata ridisegnata, scheda per scheda.
 
 - **Scheda «Oggi» ridisegnata**:
   - in alto quattro numeri: compiti da fare, verifiche della settimana, giorni alla prossima verifica, media generale;
