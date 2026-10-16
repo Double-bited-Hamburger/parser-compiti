@@ -221,6 +221,14 @@ class Nuvola(Base):
         self.assertEqual(nuvola_adatta.valore_voto({"valutazione": "7+", "valutazioneMatematica": "7.25"}), 7.25)
         self.assertEqual(nuvola_adatta.valore_voto({"valutazioneMatematica": True}), 0)
 
+    def test_giorno_in_ora_italiana(self):
+        # Il giorno non dipende dal fuso del computer: conta l'ora italiana, con l'ora legale.
+        casi = {"2026-12-01T22:30:00Z": "2026-12-01", "2026-12-01T23:30:00Z": "2026-12-02", "2026-07-01T21:30:00Z": "2026-07-01",
+                "2026-07-01T22:30:00Z": "2026-07-02", "2026-03-29T00:30:00Z": "2026-03-29", "2026-10-24T22:30:00Z": "2026-10-25",
+                "2026-10-01T00:00:00+02:00": "2026-10-01", "2026-10-01T00:00:00": "2026-10-01", "01/10/2026": "2026-10-01"}
+        for testo, atteso in casi.items():
+            self.assertEqual(nuvola_adatta._giorno(testo), atteso, testo)
+
     def pagina(self, giorno):
         return dati.elabora({"dashboard": {}, "profilo": {}, "nuvola": json.loads(json.dumps(GREZZO_NUVOLA)), "scaricato": "2026-10-08T07:00:00"}, giorno)
 

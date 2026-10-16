@@ -8,7 +8,7 @@ Su Nuvola:
 """
 
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 
 import parser as estrai
 
@@ -21,14 +21,26 @@ def _lista(valore):
     return [v for v in valore if isinstance(v, dict)] if isinstance(valore, list) else []
 
 
+def _ora_italiana(momento):
+    """Un istante con fuso portato all'ora italiana, senza dipendere dal fuso del dispositivo:
+    +2 dall'ultima domenica di marzo all'ultima di ottobre (cambi alle 01:00 UTC), +1 il resto dell'anno."""
+    utc = momento.astimezone(timezone.utc).replace(tzinfo=None)
+
+    def ultima_domenica(mese):
+        fine = datetime(utc.year, mese, 31, 1)
+        return fine - timedelta(days=(fine.weekday() + 1) % 7)
+
+    return utc + timedelta(hours=2 if ultima_domenica(3) <= utc < ultima_domenica(10) else 1)
+
+
 def _giorno(valore):
-    """Data ISO (AAAA-MM-GG) nel fuso locale, da un valore tipo «2026-10-07T00:00:00+02:00»."""
+    """Data ISO (AAAA-MM-GG) nell'ora italiana, da un valore tipo «2026-10-07T00:00:00+02:00»."""
     if not isinstance(valore, str) or not valore.strip():
         return None
     testo = valore.strip()
     try:
         momento = datetime.fromisoformat(testo.replace("Z", "+00:00"))
-        return (momento.astimezone() if momento.tzinfo else momento).date().isoformat()
+        return (_ora_italiana(momento) if momento.tzinfo else momento).date().isoformat()
     except ValueError:
         pass
     trovato = re.match(r"(\d{2})[/-](\d{2})[/-](\d{4})", testo)
