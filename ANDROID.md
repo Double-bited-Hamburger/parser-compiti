@@ -3,7 +3,7 @@
 L'app Android è la stessa app del PC: dentro c'è lo stesso codice Python (incorporato con Chaquopy) e la stessa pagina. Funziona da sola, anche fuori casa: scarica dai registri con le credenziali del profilo.
 
 ## Scaricare l'APK già pronto
-1. Dal telefono apri **[parser-compiti-0.5.0.apk](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.5.0/parser-compiti-0.5.0.apk)** (o scegli una versione nelle [Release](../../releases)).
+1. Dal telefono apri **[zaino-0.5.0.apk](https://github.com/Double-bited-Hamburger/parser-compiti/releases/download/v0.5.0/zaino-0.5.0.apk)** (o scegli una versione nelle [Release](../../releases)).
 2. Apri il file scaricato; Android chiede di consentire l'installazione dal browser: consentila.
 3. Fatto. Per aggiornare, scarica il nuovo APK e installalo sopra: i dati restano.
 
@@ -18,7 +18,7 @@ Serve una volta sola avere installato Android Studio (porta con sé l'SDK Androi
    python.build=C:/percorso/di/python3.12/python.exe
    ```
 2. Doppio clic su `android\costruisci.bat`. La prima volta scarica i componenti e ci mette qualche minuto.
-3. L'APK è in `output\registro.apk`.
+3. L'APK è in `output\zaino.apk`.
 
 Dopo ogni modifica al codice Python o alla pagina basta rilanciare `costruisci.bat` e reinstallare: i dati sul telefono restano.
 
@@ -35,14 +35,14 @@ keyPassword=...
 
 ## Installare sul telefono
 - **Con il cavo**: attiva «Debug USB» nelle Opzioni sviluppatore, collega il telefono e lancia
-  `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb install -r output\registro.apk`
-- **Senza cavo**: copia `output\registro.apk` sul telefono (anche da Telegram o Drive), aprilo e consenti l'installazione da quella app.
+  `%LOCALAPPDATA%\Android\Sdk\platform-tools\adb install -r output\zaino.apk`
+- **Senza cavo**: copia `output\zaino.apk` sul telefono (anche da Telegram o Drive), aprilo e consenti l'installazione da quella app.
 
 Serve Android 7 o successivo, su un telefono a 64 bit (tutti quelli degli ultimi anni).
 
 ## Notifiche e widget
-- **Notifiche**: al primo avvio l'app chiede il permesso. Ogni due ore circa (dalle 7 alle 22, con la rete) riscarica i registri di tutti i profili e avvisa di nuovi voti, verifiche, compiti e cambi d'orario; nel tardo pomeriggio ricorda i compiti per domani non ancora spuntati. Il primo controllo prende solo nota di cosa c'è già, senza avvisare. I due tipi di avviso si accendono e spengono da Impostazioni → App → Registro → Notifiche.
-- **Widget** (in stile Nothing, chiari o scuri come il telefono): tieni premuto sulla schermata home → Widget → Registro. «Compiti» (4×2) mostra quanti compiti restano per il prossimo giorno di scuola; «Prossima verifica» (2×2) i giorni che mancano, in rosso all'ultimo; «Adesso» (4×1) la lezione in corso con il conto alla rovescia alla campanella (dopo l'ultima ora, la prima di domani). Usano l'ultimo profilo aperto e si aggiornano col controllo periodico e ogni volta che esci dall'app. Seguono il tema scelto nell'app: col tema «Ultra» diventano la lattina bianca (rose e alloro, graffi argentati, numeri neri), con gli altri temi restano in stile Nothing. Le forme del tema Ultra si rigenerano con `py strumenti/forme_ultra.py web android/app/src/main/res/drawable`.
+- **Notifiche**: al primo avvio l'app chiede il permesso. Ogni due ore circa (dalle 7 alle 22, con la rete) riscarica i registri di tutti i profili e avvisa di nuovi voti, verifiche, compiti e cambi d'orario; nel tardo pomeriggio ricorda i compiti per domani non ancora spuntati. Il primo controllo prende solo nota di cosa c'è già, senza avvisare. I due tipi di avviso si accendono e spengono da Impostazioni → App → Zaino → Notifiche.
+- **Widget** (in stile Nothing, chiari o scuri come il telefono): tieni premuto sulla schermata home → Widget → Zaino. «Compiti» (4×2) mostra quanti compiti restano per il prossimo giorno di scuola; «Prossima verifica» (2×2) i giorni che mancano, in rosso all'ultimo; «Adesso» (4×1) la lezione in corso con il conto alla rovescia alla campanella (dopo l'ultima ora, la prima di domani). Usano l'ultimo profilo aperto e si aggiornano col controllo periodico e ogni volta che esci dall'app. Seguono il tema scelto nell'app: col tema «Ultra» diventano la lattina bianca (rose e alloro, graffi argentati, numeri neri), con gli altri temi restano in stile Nothing. Le forme del tema Ultra si rigenerano con `py strumenti/forme_ultra.py web android/app/src/main/res/drawable`.
 
 ## Sincronizzare PC e telefono
 1. **PC**: apri l'app → «Profili» → riquadro «Sincronizzazione con il telefono» → «Attiva». Compare un codice di 20 caratteri. Se Windows chiede se consentire Python sulla rete, accetta per le **reti private**.
