@@ -72,7 +72,7 @@ def main():
     args = argparse.ArgumentParser(description=__doc__)
     args.add_argument("--dump", nargs="?", const="", metavar="PROFILO", help="scarica i dati di un profilo e mostra solo la loro struttura")
     args.add_argument("--senza-browser", action="store_true", help="avvia l'app senza aprire il browser")
-    args.add_argument("--version", action="version", version=f"Parser Compiti {config.VERSIONE}")
+    args.add_argument("--version", action="version", version=f"Zaino {config.VERSIONE}")
     opzioni = args.parse_args()
 
     profili.migra_vecchia_installazione()
@@ -88,7 +88,7 @@ def main():
         # Porta occupata: l'app è già in esecuzione, basta riaprire la pagina.
         webbrowser.open(indirizzo)
         return
-    print(f"Parser Compiti {config.VERSIONE} aperto su http://{server.INDIRIZZO}:{config.PORTA}/ (solo su questo computer)")
+    print(f"Zaino {config.VERSIONE} aperto su http://{server.INDIRIZZO}:{config.PORTA}/ (solo su questo computer)")
     print("Lascia aperta questa finestra mentre lo usi. Per chiudere: Ctrl+C oppure chiudi la finestra.")
     if not profili.portachiavi_disponibile():
         print("Attenzione: il portachiavi del sistema non è disponibile, le password dei registri restano in un file della cartella profili.")
