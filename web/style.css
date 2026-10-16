@@ -98,7 +98,6 @@
 :root[data-tema="nothing"] .adesso .etichetta:first-child::before, :root[data-tema="nothing"] .card b.bad::before {
   content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--critical); margin-right: 8px; vertical-align: 1px; }
 :root[data-tema="nothing"] .card b.bad::before { vertical-align: top; margin-top: 2px; }
-:root[data-tema="nothing"] .adesso .progresso { height: 3px; }
 :root[data-tema="nothing"] ul.giornata li.ora { background: transparent; box-shadow: none; }
 :root[data-tema="nothing"] ul.giornata li.ora .ore { color: var(--critical); }
 :root[data-tema="nothing"] ul.giornata .ore { font-family: var(--mono); font-size: 12px; }
@@ -184,7 +183,7 @@
 :root[data-tema="ultra"] ul.todo input[type="checkbox"] { -webkit-appearance: none; appearance: none; width: 17px; height: 17px;
   border: 2px solid #111; border-radius: 3px; background: #fff; }
 :root[data-tema="ultra"] ul.todo input[type="checkbox"]:checked { background: #111; box-shadow: inset 0 0 0 2px #fff; }
-:root[data-tema="ultra"] .anello circle.ora, :root[data-tema="ultra"] .punto-nuovo { fill: var(--azzurro); background: var(--azzurro); }
+:root[data-tema="ultra"] .punto-nuovo, :root[data-tema="ultra"] .tacche i.ora { background: var(--azzurro); }
 :root[data-tema="ultra"] .conta-nuovi { background: var(--azzurro); color: #0b3b55; }
 @media (max-width: 560px) {
   :root[data-tema="ultra"] main::before { top: 96px; right: 10px; width: 92px; height: 108px; }
@@ -200,6 +199,7 @@ main { max-width: 1000px; margin: 0 auto; padding: 24px 16px 64px; }
 h1, h2 { font-family: var(--font-titoli); }
 h1 { font-size: 24px; margin: 0; }
 h2 { font-size: 18px; margin: 32px 0 12px; }
+svg.icone { position: absolute; width: 0; height: 0; overflow: hidden; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .scegli-tema select { font: inherit; font-size: 14px; padding: 7px 8px; border-radius: var(--r); border: 1px solid var(--line);
   background: var(--card); color: var(--text); cursor: pointer; }
@@ -225,6 +225,8 @@ h3 { font-size: 15px; margin: 0 0 2px; }
   border-bottom: 2px solid transparent; white-space: nowrap; }
 .tabs button:hover { color: var(--text); }
 .tabs button[aria-selected="true"] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
+.tabs button { display: inline-flex; align-items: center; gap: 8px; }
+.tabs .ico { width: 18px; height: 18px; flex: none; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
 
 .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin-top: 20px; }
 .card { background: var(--card); border: 1px solid var(--line); border-radius: var(--r-box); padding: 14px 16px; }
@@ -391,31 +393,50 @@ svg.chart circle.pt { stroke: var(--card); stroke-width: 2; }
 
 /* Oggi */
 .oggi-data { margin: 20px 0 0; font: 600 13px/1.4 var(--font); text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
-.adesso { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; margin-top: 8px; box-shadow: inset 4px 0 0 var(--accent); }
-.adesso-testo { display: grid; gap: 2px; flex: 1 1 240px; min-width: 0; }
-.anello { position: relative; width: 132px; height: 132px; flex: none; }
-.anello svg { width: 100%; height: 100%; display: block; }
-.anello circle.acceso { fill: var(--accent); }
-.anello circle.spento { fill: var(--text); opacity: .13; }
-.anello circle.ora { fill: var(--critical); animation: cursore 1.2s steps(1) infinite; }
-.anello circle.vuoto { fill: none; stroke: var(--muted); stroke-width: 1; }
-.anello-centro { position: absolute; inset: 0; display: grid; place-content: center; text-align: center; line-height: 1.25; }
-.anello-centro b { font-size: 14px; }
-.anello-centro span { font-size: 11px; color: var(--muted); }
-@media (prefers-reduced-motion: reduce) { .anello circle.ora { animation: none; } }
+.oggi-numeri { margin-top: 8px; }
+.oggi-griglia { display: grid; gap: 0 28px; margin-top: 20px; align-items: start; }
+.oggi-colonna { min-width: 0; }
+h2.con-destra { display: flow-root; }
+h2 .h2-destra { float: right; margin-left: 12px; font: 500 13px/1.9 var(--font); color: var(--muted); text-transform: none; letter-spacing: normal; }
+.box-barra { padding: 14px 14px 4px; }
+.box-barra .progresso { margin: 0; height: 5px; }
+.progresso.fatti i, .progresso.alto i { background: var(--ok); }
+.progresso.basso i { background: var(--bad); }
+.tag.accento { background: var(--accent); color: var(--on-accent); }
+.adesso { display: grid; gap: 14px; box-shadow: inset 4px 0 0 var(--accent); }
+.adesso-riga { display: flex; gap: 12px; justify-content: space-between; align-items: flex-start; }
+.adesso-testo { display: grid; gap: 2px; min-width: 0; }
 .adesso .etichetta { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); font-weight: 600; }
+.adesso-testo .etichetta:first-child { color: var(--accent); }
 .adesso .grande { font: 700 22px/1.25 var(--font-titoli); }
-.adesso .progresso { max-width: 320px; }
-.adesso .poi { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.adesso .poi { padding-top: 12px; border-top: 1px dashed var(--line); }
+.conto-giu { display: grid; justify-items: end; flex: none; text-align: right; }
+.conto-giu b { font: 600 30px/1.1 var(--font-titoli); color: var(--accent); font-variant-numeric: tabular-nums; }
+.conto-giu span { font-size: 12px; color: var(--muted); }
+.tacche { display: flex; gap: 4px; }
+.tacche i { flex: 1 1 0; height: 6px; border-radius: 3px; background: var(--track); }
+.tacche i.si { background: var(--accent); }
+.tacche i.ora { background: var(--accent); opacity: .4; animation: cursore 1.2s steps(1) infinite; }
+@media (prefers-reduced-motion: reduce) { .tacche i.ora { animation: none; } }
 ul.giornata { list-style: none; margin: 0; padding: 0; }
-ul.giornata li { display: grid; grid-template-columns: 96px 1fr; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+ul.giornata li { display: grid; grid-template-columns: auto 1fr auto; gap: 12px; align-items: start; padding: 10px 14px; border-bottom: 1px solid var(--line); }
+ul.giornata .fatta { font-size: 12px; white-space: nowrap; }
 ul.giornata li:last-child { border-bottom: 0; }
 ul.giornata .ore { font-variant-numeric: tabular-nums; color: var(--muted); font-size: 13px; white-space: nowrap; padding-top: 1px; }
 ul.giornata li.passata { opacity: .55; }
 ul.giornata li.ora { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
 ul.giornata li.ora .ore { color: var(--accent); font-weight: 600; }
 ul.giornata li.annullata strong { text-decoration: line-through; }
-ul.consigli .icona.conto { font-variant-numeric: tabular-nums; }
+ul.consigli .icona.conto { width: 48px; height: 48px; border-radius: var(--r-box); display: flex; flex-direction: column; justify-content: center;
+  font-variant-numeric: tabular-nums; line-height: 1.1; }
+ul.consigli .icona.conto b { font-size: 18px; }
+ul.consigli .icona.conto small { font-size: 10px; font-weight: 500; }
+.oggi-voti { grid-template-columns: repeat(auto-fill, minmax(96px, 1fr)); margin-top: 0; }
+.oggi-voti .progresso { height: 4px; margin-top: 10px; }
+@media (min-width: 760px) { .oggi-griglia { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@media (min-width: 1180px) { .oggi-griglia { grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, .8fr); } }
+@media (min-width: 760px) { .oggi-colonna:nth-child(-n+2) > h2:first-child { margin-top: 0; } }
+@media (min-width: 1180px) { .oggi-colonna > h2:first-child { margin-top: 0; } }
 
 /* Ricerca */
 .cerca { margin: 20px 0 0; }
@@ -453,7 +474,33 @@ details.calendario textarea { width: 100%; min-height: 200px; font: 13px/1.5 ui-
 @media (max-width: 560px) {
   .top { flex-direction: column; gap: 12px; }
   .azioni { justify-content: flex-start; }
-  ul.giornata li { grid-template-columns: 1fr; gap: 0; }
+  ul.giornata li { grid-template-columns: auto 1fr auto; gap: 10px; padding: 10px 12px; }
+  ul.giornata .ore { font-size: 12px; }
   th, td { padding: 8px 10px; }
   .hbar { grid-template-columns: minmax(70px, 34%) 1fr auto; }
 }
+
+/* Menu: sul PC una barra laterale, sul telefono una barra fissa in basso con le sole icone (il nome della sezione aperta sotto la sua).
+   Le regole col tema servono a coprire i bottoni a pillola dei temi Nothing e Ultra, pensati per la riga di schede. */
+@media (min-width: 1000px) {
+  main { max-width: 1280px; }
+  #app:not([hidden]) { display: grid; grid-template-columns: 210px minmax(0, 1fr); gap: 0 36px; align-items: start; }
+  .tabs { flex-direction: column; gap: 2px; position: sticky; top: 16px; margin-top: 24px; box-shadow: none; overflow: visible; }
+  .tabs button { border-bottom: 0; border-radius: var(--r); padding: 10px 12px; }
+  .tabs button[aria-selected="true"] { background: var(--accent-soft); }
+  .tabs .conta-nuovi { margin-left: auto; }
+}
+@media (max-width: 700px) {
+  main { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+  .tabs, :root[data-tema] .tabs { position: fixed; z-index: 5; left: 0; right: 0; bottom: 0; margin: 0; gap: 0; justify-content: space-around;
+    padding: 6px 4px calc(8px + env(safe-area-inset-bottom)); background: var(--card); box-shadow: 0 -1px 0 var(--line); overflow: visible;
+    -webkit-backdrop-filter: blur(8px); backdrop-filter: blur(8px); }
+  .tabs button, :root[data-tema] .tabs button { position: relative; flex: 1 1 0; min-width: 0; flex-direction: column; gap: 3px; padding: 2px 0;
+    border: 0; border-radius: 0; background: none; color: var(--muted); font-size: 11px; }
+  .tabs button[aria-selected="true"], :root[data-tema] .tabs button[aria-selected="true"] { border: 0; background: none; color: var(--accent); }
+  .tabs .ico { width: 22px; height: 22px; padding: 4px 10px; box-sizing: content-box; border-radius: 99px; }
+  .tabs button[aria-selected="true"] .ico { background: var(--accent-soft); }
+  .tabs button:not([aria-selected="true"]) .nome { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+  .tabs .conta-nuovi { position: absolute; top: 0; left: calc(50% + 6px); margin: 0; }
+}
+@media (max-width: 360px) { .tabs .ico { padding: 4px 6px; } }
